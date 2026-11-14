@@ -3,54 +3,45 @@ import { Link, useSearchParams } from "react-router-dom";
 import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import {
   api,
-  type AttemptTrace,
-  type CompleteResponse,
+  type EvalResult,
   type Metrics,
   type Overview,
-  type PartOutput,
-  type Policy,
-  type PromptPart,
-  type ScoreBreakdown,
   type StreamEvent,
 } from "./api";
-import { MarkdownBody } from "./markdown";
+import ChatPlayground from "./ChatPlayground";
 import { fmtINR, fmtINRCompact, usdToInr } from "./landingEconomics";
 
 type Tab = "overview" | "baseline" | "playground" | "requests" | "registry";
+
+type EvalProgress = {
+  runId: string | null;
+  index: number;
+  total: number;
+  promptIndex: number;
+  promptCount: number;
+  policy: string | null;
+  taskType: string | null;
+  promptPreview: string | null;
+  status: string;
+  lastModel: string | null;
+  lastProvider: string | null;
+  lastLatencyMs: number | null;
+  lastCost: number | null;
+  lastSuccess: boolean | null;
+};
 
 const TAB_IDS: Tab[] = ["overview", "baseline", "playground", "requests", "registry"];
 
 function tabFromParam(value: string | null): Tab | null {
   return value && (TAB_IDS as string[]).includes(value) ? (value as Tab) : null;
 }
-type Stage =
-  | "idle"
-  | "intake"
-  | "classify"
-  | "scoreboard"
-  | "attempt"
-  | "decompose"
-  | "specialists"
-  | "synthesize"
-  | "quality"
-  | "verdict";
 
 const navItems: Array<{ id: Tab; label: string }> = [
   { id: "overview", label: "Overview" },
   { id: "baseline", label: "Baseline" },
-  { id: "playground", label: "Playground" },
+  { id: "playground", label: "Chat" },
   { id: "requests", label: "Requests" },
   { id: "registry", label: "Registry" },
-];
-
-const SINGLE_STAGES: Stage[] = ["intake", "classify", "scoreboard", "attempt", "quality", "verdict"];
-const ORCHESTRA_STAGES: Stage[] = [
-  "intake",
-  "decompose",
-  "specialists",
-  "synthesize",
-  "quality",
-  "verdict",
 ];
 
 function fmt(n: number, d = 4) {
@@ -59,6 +50,16 @@ function fmt(n: number, d = 4) {
 function pct(n: number) {
   return `${(n * 100).toFixed(1)}%`;
 }
+
+const chartTooltipStyle = {
+  background: "var(--panel)",
+  border: "1px solid var(--rule)",
+  borderRadius: 8,
+  color: "var(--ink)",
+  boxShadow: "0 10px 28px rgba(0,0,0,0.35)",
+} as const;
+
+const chartHoverCursor = { fill: "rgba(92, 255, 176, 0.07)" };
 
 /** Backend costs are USD; display as INR (catalog FX). */
 function moneyINR(usd: number, digits = 2) {
@@ -122,40 +123,6 @@ function MetricStrip({
   );
 }
 
-type TheaterState = {
-  stage: Stage;
-  policy: Policy | null;
-  taskType: string | null;
-  scoreboard: ScoreBreakdown[];
-  attempts: AttemptTrace[];
-  activeModel: string | null;
-  qualityScore: number | null;
-  qualityLabel: string;
-  result: CompleteResponse | null;
-  replayNote: string | null;
-  parts: PromptPart[];
-  partOutputs: PartOutput[];
-  activePartId: string | null;
-  synthPreview: string | null;
-};
-
-const emptyTheater = (): TheaterState => ({
-  stage: "idle",
-  policy: null,
-  taskType: null,
-  scoreboard: [],
-  attempts: [],
-  activeModel: null,
-  qualityScore: null,
-  qualityLabel: "heuristic quality proxy",
-  result: null,
-  replayNote: null,
-  parts: [],
-  partOutputs: [],
-  activePartId: null,
-  synthPreview: null,
-});
-
 export default function App() {
   const [searchParams] = useSearchParams();
   const [tab, setTab] = useState<Tab>(() => tabFromParam(searchParams.get("tab")) ?? "overview");
@@ -175,15 +142,20 @@ export default function App() {
     models: Array<Record<string, unknown>>;
     quality_label?: string;
   } | null>(null);
-  const [evalResult, setEvalResult] = useState<(Overview & { id: string | null; prompt_count?: number }) | null>(null);
-  const [prompt, setPrompt] = useState(
-    "1) Write a Python function that reverses a string without slicing.\n\n2) Which number is larger, 9.11 or 9.8? Explain briefly.\n\n3) Define TCP vs UDP in one short paragraph.\n\n4) End with a four-line haiku about API routing.",
-  );
-  const [theater, setTheater] = useState<TheaterState>(emptyTheater);
-  const [speed, setSpeed] = useState<1 | 2>(1);
-  const [paused, setPaused] = useState(false);
+  const [evalResult, setEvalResult] = useState<EvalResult | null>(null);
+  const [evalProgress, setEvalProgress] = useState<EvalProgress | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [showFullCatalog, setShowFullCatalog] = useState(false);
+  const [preferMotion, setPreferMotion] = useState(true);
+
+  useEffect(() => {
+    const mq = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const sync = () => setPreferMotion(!mq.matches);
+    sync();
+    mq.addEventListener("change", sync);
+    return () => mq.removeEventListener("change", sync);
+  }, []);
 
   async function refresh() {
     setError(null);
@@ -211,129 +183,232 @@ export default function App() {
     void refresh();
   }, []);
 
+  // Live Overview: poll every 5s while the tab is open (pause during eval).
+  useEffect(() => {
+    if (tab !== "overview" || busy) return;
+    const id = window.setInterval(() => {
+      void refresh();
+    }, 5000);
+    return () => window.clearInterval(id);
+  }, [tab, busy]);
+
   const taskChart = useMemo(() => {
     const map = new Map<string, { task: string; routed: number; baseline: number }>();
     for (const row of byTask) {
       const task = String(row.task_type);
       const cur = map.get(task) || { task, routed: 0, baseline: 0 };
-      if (row.policy === "routed") cur.routed = usdToInr(Number(row.total_cost));
-      else cur.baseline = usdToInr(Number(row.total_cost));
+      const costInr = usdToInr(Number(row.total_cost));
+      if (row.policy === "routed" || row.policy === "orchestra") {
+        cur.routed += costInr;
+      } else if (row.policy === "baseline") {
+        cur.baseline += costInr;
+      }
       map.set(task, cur);
     }
     return [...map.values()];
   }, [byTask]);
 
-  function applyStreamEvent(ev: StreamEvent) {
-    setTheater((prev) => {
-      const next = { ...prev };
-      if (ev.event === "decomposed") {
-        next.stage = "decompose";
-        next.parts = (ev.data.parts as PromptPart[]) || [];
-        next.taskType = next.parts.map((p) => p.task_type).join("+") || null;
-      } else if (ev.event === "part_ranked") {
-        next.stage = "specialists";
-        next.activePartId = String(ev.data.part_id || "");
-        next.scoreboard = (ev.data.candidates as ScoreBreakdown[]) || [];
-      } else if (ev.event === "part_attempt_start") {
-        next.stage = "specialists";
-        next.activePartId = String(ev.data.part_id || prev.activePartId || "");
-        next.activeModel = String(ev.data.model || "");
-      } else if (ev.event === "part_attempt_end") {
-        next.stage = "specialists";
-        const attempt = ev.data as unknown as AttemptTrace;
-        next.attempts = [
-          ...prev.attempts.filter(
-            (a) => !(a.index === attempt.index && (a.part_id || "") === (attempt.part_id || "")),
-          ),
-          attempt,
-        ].sort((a, b) => a.index - b.index || String(a.part_id).localeCompare(String(b.part_id)));
-        next.activeModel = attempt.model;
-        next.activePartId = attempt.part_id || prev.activePartId;
-      } else if (ev.event === "part_done") {
-        next.stage = "specialists";
-        const partOut = ev.data as unknown as PartOutput;
-        next.partOutputs = [
-          ...prev.partOutputs.filter((p) => p.part_id !== partOut.part_id),
-          partOut,
-        ];
-        next.activePartId = partOut.part_id;
-        next.activeModel = partOut.model;
-      } else if (ev.event === "synthesized") {
-        next.stage = "synthesize";
-        next.synthPreview = String(ev.data.output_preview || "");
-      } else if (ev.event === "classified") {
-        next.stage = "classify";
-        next.taskType = String(ev.data.task_type || "");
-      } else if (ev.event === "ranked") {
-        next.stage = "scoreboard";
-        next.scoreboard = (ev.data.candidates as ScoreBreakdown[]) || [];
-      } else if (ev.event === "attempt_start") {
-        next.stage = "attempt";
-        next.activeModel = String(ev.data.model || "");
-      } else if (ev.event === "attempt_end") {
-        next.stage = "attempt";
-        const attempt = ev.data as unknown as AttemptTrace;
-        next.attempts = [...prev.attempts.filter((a) => a.index !== attempt.index), attempt].sort(
-          (a, b) => a.index - b.index,
-        );
-        next.activeModel = attempt.model;
-      } else if (ev.event === "quality") {
-        next.stage = "quality";
-        next.qualityScore = (ev.data.quality_score as number | null) ?? null;
-        next.qualityLabel = String(ev.data.quality_label || "heuristic quality proxy");
-      } else if (ev.event === "final") {
-        next.stage = "verdict";
-        next.result = ev.data as unknown as CompleteResponse;
-        next.activeModel = String((ev.data as CompleteResponse).model || "");
-        const final = ev.data as unknown as CompleteResponse;
-        if (final.parts?.length) next.parts = final.parts;
-        if (final.part_outputs?.length) next.partOutputs = final.part_outputs;
-      }
-      return next;
-    });
-  }
+  const liveSavedInr = useMemo(() => {
+    if (!overview?.routed || !overview?.baseline) return 0;
+    return Math.max(
+      0,
+      usdToInr(overview.baseline.total_cost) - usdToInr(overview.routed.total_cost),
+    );
+  }, [overview]);
 
-  async function onComplete(policy: Policy) {
-    setBusy(true);
-    setError(null);
-    setPaused(false);
-    setTheater({ ...emptyTheater(), stage: "intake", policy, replayNote: null });
-    try {
-      await new Promise((r) => setTimeout(r, paused ? 0 : 280 / speed));
-      const result = await api.completeStream(
-        prompt,
-        policy,
-        (ev) => {
-          applyStreamEvent(ev);
-        },
-        { replayDelayMs: 320 / speed },
-      );
-      setTheater((prev) => ({
-        ...prev,
-        stage: "verdict",
-        result,
-        parts: result.parts || prev.parts,
-        partOutputs: result.part_outputs || prev.partOutputs,
+  const overviewCostCompare = useMemo(() => {
+    if (!overview?.routed || !overview?.baseline) return [];
+    return [
+      {
+        name: "Total cost",
+        routed: usdToInr(overview.routed.total_cost),
+        baseline: usdToInr(overview.baseline.total_cost),
+      },
+    ];
+  }, [overview]);
+
+  const providerMix = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const r of byModel) {
+      const n = Number(r.requests) || 0;
+      if (n <= 0) continue;
+      const provider = String(r.provider || "unknown");
+      map.set(provider, (map.get(provider) || 0) + n);
+    }
+    return [...map.entries()]
+      .map(([provider, requests]) => ({ provider, requests }))
+      .sort((a, b) => b.requests - a.requests);
+  }, [byModel]);
+
+  const topModelsChart = useMemo(() => {
+    return [...byModel]
+      .filter((r) => Number(r.requests) > 0)
+      .sort((a, b) => Number(b.requests) - Number(a.requests))
+      .slice(0, 8)
+      .map((r) => ({
+        name: String(r.display_name || r.model).slice(0, 22),
+        requests: Number(r.requests) || 0,
+        cost: usdToInr(Number(r.total_cost) || 0),
       }));
-      await refresh();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "complete failed");
-      setTheater(emptyTheater());
-    } finally {
-      setBusy(false);
+  }, [byModel]);
+
+  const trafficRows = useMemo(() => {
+    if (showFullCatalog) return byModel;
+    return byModel.filter((r) => Number(r.requests) > 0);
+  }, [byModel, showFullCatalog]);
+
+  const evalTaskChart = useMemo(() => {
+    const map = new Map<string, { task: string; routed: number; baseline: number }>();
+    for (const row of evalResult?.by_task || []) {
+      const task = String(row.task_type);
+      const cur = map.get(task) || { task, routed: 0, baseline: 0 };
+      const costInr = usdToInr(Number(row.total_cost));
+      if (row.policy === "routed" || row.policy === "orchestra") {
+        cur.routed += costInr;
+      } else if (row.policy === "baseline") {
+        cur.baseline += costInr;
+      }
+      map.set(task, cur);
+    }
+    return [...map.values()];
+  }, [evalResult?.by_task]);
+
+  const evalCostCompare = useMemo(() => {
+    if (!evalResult?.routed || !evalResult?.baseline) return [];
+    return [
+      {
+        name: "Cost (INR)",
+        routed: usdToInr(evalResult.routed.total_cost),
+        baseline: usdToInr(evalResult.baseline.total_cost),
+      },
+    ];
+  }, [evalResult]);
+
+  const evalQualityCompare = useMemo(() => {
+    if (!evalResult?.routed || !evalResult?.baseline) return [];
+    return [
+      {
+        name: "Quality",
+        routed: evalResult.routed.avg_quality,
+        baseline: evalResult.baseline.avg_quality,
+      },
+      {
+        name: "Success",
+        routed: evalResult.routed.success_rate,
+        baseline: evalResult.baseline.success_rate,
+      },
+    ];
+  }, [evalResult]);
+
+  const evalLatencyCompare = useMemo(() => {
+    if (!evalResult?.routed || !evalResult?.baseline) return [];
+    return [
+      {
+        name: "Latency (ms)",
+        routed: evalResult.routed.avg_latency_ms,
+        baseline: evalResult.baseline.avg_latency_ms,
+      },
+    ];
+  }, [evalResult]);
+
+  const evalSavedInr = useMemo(() => {
+    if (!evalResult?.routed || !evalResult?.baseline) return 0;
+    return Math.max(
+      0,
+      usdToInr(evalResult.baseline.total_cost) - usdToInr(evalResult.routed.total_cost),
+    );
+  }, [evalResult]);
+
+  function applyEvalEvent(ev: StreamEvent) {
+    const d = ev.data;
+    if (ev.event === "started") {
+      setEvalProgress({
+        runId: String(d.run_id ?? ""),
+        index: 0,
+        total: Number(d.total_calls ?? 0),
+        promptIndex: 0,
+        promptCount: Number(d.prompt_count ?? 0),
+        policy: null,
+        taskType: null,
+        promptPreview: null,
+        status: String(d.status ?? "Starting eval…"),
+        lastModel: null,
+        lastProvider: null,
+        lastLatencyMs: null,
+        lastCost: null,
+        lastSuccess: null,
+      });
+      return;
+    }
+    if (ev.event === "step") {
+      setEvalProgress((prev) => ({
+        runId: prev?.runId ?? null,
+        index: Number(d.index ?? 0),
+        total: Number(d.total ?? prev?.total ?? 0),
+        promptIndex: Number(d.prompt_index ?? 0),
+        promptCount: Number(d.prompt_count ?? prev?.promptCount ?? 0),
+        policy: String(d.policy ?? ""),
+        taskType: d.task_type != null ? String(d.task_type) : null,
+        promptPreview: d.prompt_preview != null ? String(d.prompt_preview) : null,
+        status: String(d.status ?? "Running…"),
+        lastModel: prev?.lastModel ?? null,
+        lastProvider: prev?.lastProvider ?? null,
+        lastLatencyMs: prev?.lastLatencyMs ?? null,
+        lastCost: prev?.lastCost ?? null,
+        lastSuccess: prev?.lastSuccess ?? null,
+      }));
+      return;
+    }
+    if (ev.event === "step_done") {
+      setEvalProgress((prev) => ({
+        runId: prev?.runId ?? null,
+        index: Number(d.index ?? prev?.index ?? 0),
+        total: Number(d.total ?? prev?.total ?? 0),
+        promptIndex: Number(d.prompt_index ?? prev?.promptIndex ?? 0),
+        promptCount: Number(d.prompt_count ?? prev?.promptCount ?? 0),
+        policy: String(d.policy ?? prev?.policy ?? ""),
+        taskType: d.task_type != null ? String(d.task_type) : prev?.taskType ?? null,
+        promptPreview: prev?.promptPreview ?? null,
+        status: String(d.status ?? "Step done"),
+        lastModel: d.model != null ? String(d.model) : null,
+        lastProvider: d.provider != null ? String(d.provider) : null,
+        lastLatencyMs: d.latency_ms != null ? Number(d.latency_ms) : null,
+        lastCost: d.est_cost != null ? Number(d.est_cost) : null,
+        lastSuccess: d.success != null ? Boolean(d.success) : null,
+      }));
     }
   }
 
   async function onEval() {
     setBusy(true);
     setError(null);
+    setEvalResult(null);
+    setEvalProgress({
+      runId: null,
+      index: 0,
+      total: 0,
+      promptIndex: 0,
+      promptCount: 0,
+      policy: null,
+      taskType: null,
+      promptPreview: null,
+      status: "Connecting to eval stream…",
+      lastModel: null,
+      lastProvider: null,
+      lastLatencyMs: null,
+      lastCost: null,
+      lastSuccess: null,
+    });
+    setTab("baseline");
     try {
-      const res = await api.runEval();
+      // Cap fixture size for UI runs (full suite is 44×2 sequential LLM calls).
+      const res = await api.runEvalStream(12, applyEvalEvent);
       setEvalResult(res);
-      setTab("baseline");
+      setEvalProgress(null);
       await refresh();
     } catch (e) {
       setError(e instanceof Error ? e.message : "eval failed");
+      setEvalProgress(null);
     } finally {
       setBusy(false);
     }
@@ -342,19 +417,10 @@ export default function App() {
   const titles: Record<Tab, string> = {
     overview: "Overview",
     baseline: "Baseline",
-    playground: "Routing theater",
+    playground: "Chat",
     requests: "Requests",
     registry: "Registry",
   };
-
-  const stageList =
-    theater.policy === "orchestra" || (!theater.policy && theater.parts.length > 0)
-      ? ORCHESTRA_STAGES
-      : SINGLE_STAGES;
-  const stageIndex = Math.max(0, stageList.indexOf(theater.stage === "idle" ? "intake" : theater.stage));
-  const eligibleBoard = theater.scoreboard.filter((s) => s.eligible);
-  const topScore = eligibleBoard[0]?.score;
-  const isOrchestra = theater.policy === "orchestra" || (theater.result?.policy === "orchestra");
 
   return (
     <div className="app" data-theme={darkMode ? "dark" : "light"}>
@@ -382,25 +448,28 @@ export default function App() {
             {darkMode ? "Light" : "Dark"}
           </button>
           <button className="solid" disabled={busy} onClick={() => void onEval()} type="button">
-            {busy && tab !== "playground" ? "Working…" : "Run eval"}
+            {busy && tab !== "playground" ? "Running eval…" : "Run eval"}
           </button>
         </div>
       </header>
 
-      <main className="main">
-        <div className="main__head">
-          <h1>{titles[tab]}</h1>
-          {tab === "overview" && <p>Live traffic summary: routed vs baseline cost, latency, and success.</p>}
-          {tab === "baseline" && <p>Run the fixture suite against {models?.baseline_model ?? "baseline"}.</p>}
-          {tab === "playground" && (
-            <p>
-              Route splits a mixed prompt into specialty tasks, picks a model for each, then stitches one
-              answer. Single route keeps the one-model path.
-            </p>
-          )}
-          {tab === "requests" && <p>Recent requests with cost (INR), latency, and quality.</p>}
-          {tab === "registry" && <p>Model list and specialty strengths used for routing.</p>}
-        </div>
+      <main
+        className={`main${tab === "playground" ? " main--chat" : ""}${tab === "overview" ? " main--overview" : ""}`}
+      >
+        {tab !== "playground" && tab !== "overview" && (
+          <div className="main__head">
+            <h1>{titles[tab]}</h1>
+            {tab === "baseline" && (
+              <p>
+                {busy
+                  ? "Eval in progress — comparing baseline vs routed on each fixture prompt."
+                  : `Run the fixture suite against ${models?.baseline_model ?? "baseline"}.`}
+              </p>
+            )}
+            {tab === "requests" && <p>Recent requests with cost (INR), latency, and quality.</p>}
+            {tab === "registry" && <p>Model list and specialty strengths used for routing.</p>}
+          </div>
+        )}
 
         {error && (
           <p className="error" role="alert">
@@ -409,76 +478,317 @@ export default function App() {
         )}
 
         {tab === "overview" && overview && (
-          <div className="stack">
-            <p className="scope-note">Scope: historical operational traffic (not a matched-fixture eval run).</p>
-            <MetricStrip title="Routed" m={overview.routed} savings={overview.cost_savings_vs_baseline} />
-            <MetricStrip title="Baseline" m={overview.baseline} />
-            <div className="split">
+          <div className="stack overview-dash">
+            <div className="main__head overview-dash__head">
+              <h1>Overview</h1>
+              <p>
+                Live ops vs locked baseline. Auto-refreshes every 5s.
+                {overview.as_of ? <> Updated {new Date(overview.as_of).toLocaleTimeString()}.</> : null}
+              </p>
+            </div>
+
+            <section className="overview-hero" aria-label="Live savings">
+              {preferMotion && (
+                <video
+                  className="overview-hero__video"
+                  src="/overview-hero.mp4"
+                  autoPlay
+                  muted
+                  loop
+                  playsInline
+                  aria-hidden="true"
+                />
+              )}
+              <div className="overview-hero__shade" aria-hidden="true" />
+              <div className="overview-hero__content">
+                <p className="overview-hero__eyebrow">Live savings vs locked baseline</p>
+                <p className="overview-hero__value">
+                  {liveSavedInr > 0 ? (
+                    <>
+                      Saved {fmtINR(liveSavedInr)}
+                      {overview.cost_savings_vs_baseline != null && (
+                        <span> ({pct(overview.cost_savings_vs_baseline)})</span>
+                      )}
+                    </>
+                  ) : (
+                    <>No savings yet — send Chat traffic</>
+                  )}
+                </p>
+                <p className="overview-hero__note">
+                  Routed is actual Chat spend. Baseline is list price of{" "}
+                  <code>{models?.baseline_model ?? "baseline"}</code> on the same tokens.
+                </p>
+              </div>
+            </section>
+
+            <MetricStrip
+              title="Routed / Orchestra"
+              m={overview.routed}
+              savings={overview.cost_savings_vs_baseline}
+            />
+            <MetricStrip
+              title={`Baseline (${models?.baseline_model ?? "locked"})`}
+              m={overview.baseline}
+            />
+
+            <div className="overview-grid">
               <section className="block">
                 <h2>Cost by task (INR)</h2>
-                <div className="chart">
+                <div className="chart chart--tall">
                   <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={taskChart} margin={{ top: 8, right: 4, left: -18, bottom: 0 }}>
+                    <BarChart data={taskChart} margin={{ top: 8, right: 8, left: -8, bottom: 0 }}>
                       <CartesianGrid strokeDasharray="3 3" stroke="var(--rule)" vertical={false} />
-                      <XAxis dataKey="task" axisLine={false} tickLine={false} tick={{ fill: "var(--muted)", fontSize: 12 }} />
+                      <XAxis
+                        dataKey="task"
+                        axisLine={false}
+                        tickLine={false}
+                        tick={{ fill: "var(--muted)", fontSize: 11 }}
+                        interval={0}
+                        angle={-20}
+                        textAnchor="end"
+                        height={52}
+                      />
                       <YAxis
                         axisLine={false}
                         tickLine={false}
                         tick={{ fill: "var(--muted)", fontSize: 11 }}
-                        tickFormatter={(v: number) => `₹${Number(v).toFixed(2)}`}
+                        tickFormatter={(v: number) => `₹${Number(v).toFixed(0)}`}
                       />
                       <Tooltip
-                        contentStyle={{
-                          background: "var(--panel)",
-                          border: "1px solid var(--rule)",
-                          borderRadius: 2,
-                          color: "var(--ink)",
-                        }}
-                        formatter={(value: number) => [fmtINR(Number(value)), "INR"]}
+                        cursor={chartHoverCursor}
+                        contentStyle={chartTooltipStyle}
+                        labelStyle={{ color: "var(--muted)", marginBottom: 4 }}
+                        itemStyle={{ color: "var(--ink)" }}
+                        formatter={(value: number, name: string) => [fmtINR(Number(value)), name]}
                       />
                       <Legend wrapperStyle={{ color: "var(--muted)", fontSize: 12 }} />
-                      <Bar dataKey="routed" name="Routed" fill="var(--accent)" maxBarSize={26} />
-                      <Bar dataKey="baseline" name="Baseline" fill="var(--ink-soft)" maxBarSize={26} />
+                      <Bar dataKey="routed" name="Routed" fill="var(--accent)" maxBarSize={28} radius={[3, 3, 0, 0]} />
+                      <Bar dataKey="baseline" name="Baseline" fill="var(--ink-soft)" maxBarSize={28} radius={[3, 3, 0, 0]} />
                     </BarChart>
                   </ResponsiveContainer>
                 </div>
               </section>
+
               <section className="block">
-                <h2>Traffic by model</h2>
-                <div className="table-scroll">
-                  <table>
-                    <thead>
-                      <tr>
-                        <th>Model</th>
-                        <th>Requests</th>
-                        <th>Cost</th>
-                        <th>Latency</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {byModel.map((r) => (
-                        <tr key={String(r.model)}>
-                          <td className="mono">{String(r.model)}</td>
-                          <td>{String(r.requests)}</td>
-                          <td>{moneyINR(Number(r.total_cost))}</td>
-                          <td>{String(r.avg_latency_ms)} ms</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                <h2>Cost head-to-head (INR)</h2>
+                <div className="chart chart--tall">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={overviewCostCompare} margin={{ top: 8, right: 8, left: -8, bottom: 0 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="var(--rule)" vertical={false} />
+                      <XAxis dataKey="name" tick={{ fill: "var(--muted)", fontSize: 12 }} />
+                      <YAxis
+                        tick={{ fill: "var(--muted)", fontSize: 11 }}
+                        tickFormatter={(v: number) => `₹${Number(v).toFixed(0)}`}
+                      />
+                      <Tooltip
+                        cursor={chartHoverCursor}
+                        contentStyle={chartTooltipStyle}
+                        labelStyle={{ color: "var(--muted)", marginBottom: 4 }}
+                        itemStyle={{ color: "var(--ink)" }}
+                        formatter={(value: number, name: string) => [fmtINR(Number(value)), name]}
+                      />
+                      <Legend />
+                      <Bar dataKey="routed" name="Routed" fill="var(--accent)" maxBarSize={56} radius={[4, 4, 0, 0]} />
+                      <Bar dataKey="baseline" name="Baseline" fill="var(--ink-soft)" maxBarSize={56} radius={[4, 4, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              </section>
+
+              <section className="block">
+                <h2>Provider mix (requests)</h2>
+                <div className="chart chart--tall">
+                  {providerMix.length === 0 ? (
+                    <p className="muted" style={{ padding: 16 }}>
+                      No live traffic yet.
+                    </p>
+                  ) : (
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart
+                        layout="vertical"
+                        data={providerMix}
+                        margin={{ top: 8, right: 16, left: 8, bottom: 0 }}
+                      >
+                        <CartesianGrid strokeDasharray="3 3" stroke="var(--rule)" horizontal={false} />
+                        <XAxis type="number" tick={{ fill: "var(--muted)", fontSize: 11 }} allowDecimals={false} />
+                        <YAxis
+                          type="category"
+                          dataKey="provider"
+                          width={88}
+                          tick={{ fill: "var(--muted)", fontSize: 12 }}
+                        />
+                        <Tooltip
+                          cursor={chartHoverCursor}
+                          contentStyle={chartTooltipStyle}
+                          labelStyle={{ color: "var(--muted)", marginBottom: 4 }}
+                          itemStyle={{ color: "var(--ink)" }}
+                          formatter={(value: number) => [String(value), "Requests"]}
+                        />
+                        <Bar dataKey="requests" name="Requests" fill="var(--accent)" maxBarSize={22} radius={[0, 4, 4, 0]} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  )}
+                </div>
+              </section>
+
+              <section className="block">
+                <h2>Top models by traffic</h2>
+                <div className="chart chart--tall">
+                  {topModelsChart.length === 0 ? (
+                    <p className="muted" style={{ padding: 16 }}>
+                      No active models yet.
+                    </p>
+                  ) : (
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart
+                        layout="vertical"
+                        data={topModelsChart}
+                        margin={{ top: 8, right: 16, left: 8, bottom: 0 }}
+                      >
+                        <CartesianGrid strokeDasharray="3 3" stroke="var(--rule)" horizontal={false} />
+                        <XAxis type="number" tick={{ fill: "var(--muted)", fontSize: 11 }} allowDecimals={false} />
+                        <YAxis
+                          type="category"
+                          dataKey="name"
+                          width={120}
+                          tick={{ fill: "var(--muted)", fontSize: 11 }}
+                        />
+                        <Tooltip
+                          cursor={chartHoverCursor}
+                          contentStyle={chartTooltipStyle}
+                          labelStyle={{ color: "var(--muted)", marginBottom: 4 }}
+                          itemStyle={{ color: "var(--ink)" }}
+                          formatter={(value: number) => [String(value), "Requests"]}
+                        />
+                        <Bar dataKey="requests" name="Requests" fill="var(--accent)" maxBarSize={20} radius={[0, 4, 4, 0]} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  )}
                 </div>
               </section>
             </div>
+
+            <section className="block">
+              <div className="block__head">
+                <h2>Traffic by model</h2>
+                <button
+                  type="button"
+                  className="ghost"
+                  onClick={() => setShowFullCatalog((v) => !v)}
+                >
+                  {showFullCatalog ? "Active only" : "Show full catalog"}
+                </button>
+              </div>
+              <p className="scope-note">
+                {showFullCatalog
+                  ? `Full live catalog (${byModel.length} models).`
+                  : `Active models (${trafficRows.length} of ${byModel.length}).`}{" "}
+                Mock / eval / retired traffic stays hidden.
+              </p>
+              <div className="table-scroll table-scroll--overview">
+                <table className="wide">
+                  <thead>
+                    <tr>
+                      <th>Model</th>
+                      <th>Provider</th>
+                      <th>Requests</th>
+                      <th>Cost</th>
+                      <th>Latency</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {trafficRows.map((r) => (
+                      <tr key={String(r.model)}>
+                        <td className="mono">{String(r.display_name || r.model)}</td>
+                        <td>{String(r.provider || "—")}</td>
+                        <td>{String(r.requests)}</td>
+                        <td>{moneyINR(Number(r.total_cost))}</td>
+                        <td>
+                          {Number(r.requests) > 0 ? `${String(r.avg_latency_ms)} ms` : "—"}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </section>
           </div>
         )}
 
         {tab === "baseline" && (
           <div className="stack">
-            {!evalResult && (
+            {evalProgress && (
+              <section className="eval-progress" aria-live="polite">
+                <div className="eval-progress__head">
+                  <h2>Eval progress</h2>
+                  <span>
+                    {evalProgress.total > 0
+                      ? `${Math.min(evalProgress.index, evalProgress.total)} / ${evalProgress.total}`
+                      : "…"}
+                  </span>
+                </div>
+                <div
+                  className="eval-progress__bar"
+                  role="progressbar"
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  aria-valuenow={
+                    evalProgress.total > 0
+                      ? Math.round((evalProgress.index / evalProgress.total) * 100)
+                      : 0
+                  }
+                >
+                  <div className="eval-progress__track" aria-hidden="true">
+                    <div
+                      className="eval-progress__fill"
+                      style={{
+                        width: `${
+                          evalProgress.total > 0
+                            ? Math.min(100, (evalProgress.index / evalProgress.total) * 100)
+                            : 0
+                        }%`,
+                      }}
+                    />
+                  </div>
+                </div>
+                <p className="eval-progress__status">{evalProgress.status}</p>
+                {(evalProgress.policy || evalProgress.promptPreview) && (
+                  <div className="eval-progress__now">
+                    {evalProgress.policy && (
+                      <p className="eval-progress__policy">
+                        <strong>{evalProgress.policy}</strong>
+                        {evalProgress.taskType ? <> · {evalProgress.taskType}</> : null}
+                        {evalProgress.promptCount > 0 ? (
+                          <>
+                            {" "}
+                            · prompt {evalProgress.promptIndex}/{evalProgress.promptCount}
+                          </>
+                        ) : null}
+                      </p>
+                    )}
+                    {evalProgress.promptPreview && (
+                      <p className="eval-progress__prompt">{evalProgress.promptPreview}</p>
+                    )}
+                  </div>
+                )}
+                {evalProgress.lastModel && (
+                  <p className="eval-progress__last">
+                    Last: <strong>{evalProgress.lastModel}</strong>
+                    {evalProgress.lastProvider ? (
+                      <span className="eval-progress__provider"> · {evalProgress.lastProvider}</span>
+                    ) : null}
+                    {evalProgress.lastLatencyMs != null ? <> · {evalProgress.lastLatencyMs} ms</> : null}
+                    {evalProgress.lastCost != null ? <> · {moneyINR(evalProgress.lastCost)}</> : null}
+                    {evalProgress.lastSuccess === false ? <> · failed</> : null}
+                  </p>
+                )}
+              </section>
+            )}
+            {!evalResult && !evalProgress && (
               <div className="empty">
                 <p>No evaluation yet. Run the fixture suite to compare cost, latency, and quality.</p>
                 <button className="solid" disabled={busy} onClick={() => void onEval()} type="button">
-                  {busy ? "Working…" : "Run eval"}
+                  Run eval
                 </button>
               </div>
             )}
@@ -492,390 +802,187 @@ export default function App() {
                 </p>
                 <MetricStrip title="Routed" m={evalResult.routed} savings={evalResult.cost_savings_vs_baseline} />
                 <MetricStrip title="Baseline" m={evalResult.baseline} />
+
+                {evalResult.cost_savings_vs_baseline != null && evalSavedInr > 0 && (
+                  <section className="eval-savings" aria-label="Eval savings">
+                    <p className="eval-savings__eyebrow">Matched fixture savings</p>
+                    <p className="eval-savings__value">
+                      Saved {fmtINR(evalSavedInr)}{" "}
+                      <span>({pct(evalResult.cost_savings_vs_baseline)})</span>
+                    </p>
+                    <p className="eval-savings__note">
+                      vs locked baseline <code>{models?.baseline_model ?? "baseline"}</code> on the same
+                      prompts (list prices in INR).
+                    </p>
+                  </section>
+                )}
+
+                <div className="split">
+                  <section className="block">
+                    <h2>Cost (INR)</h2>
+                    <div className="chart chart--short">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart data={evalCostCompare} margin={{ top: 8, right: 8, left: -8, bottom: 0 }}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="var(--rule)" vertical={false} />
+                          <XAxis dataKey="name" tick={{ fill: "var(--muted)", fontSize: 12 }} />
+                          <YAxis tick={{ fill: "var(--muted)", fontSize: 12 }} />
+                          <Tooltip
+                            formatter={(value: number) => [fmtINR(Number(value)), "INR"]}
+                            contentStyle={{
+                              background: "var(--panel)",
+                              border: "1px solid var(--rule)",
+                            }}
+                          />
+                          <Legend />
+                          <Bar dataKey="routed" name="Routed" fill="var(--accent)" maxBarSize={48} />
+                          <Bar dataKey="baseline" name="Baseline" fill="var(--ink-soft)" maxBarSize={48} />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </section>
+                  <section className="block">
+                    <h2>Quality & success</h2>
+                    <div className="chart chart--short">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart
+                          data={evalQualityCompare}
+                          margin={{ top: 8, right: 8, left: -8, bottom: 0 }}
+                        >
+                          <CartesianGrid strokeDasharray="3 3" stroke="var(--rule)" vertical={false} />
+                          <XAxis dataKey="name" tick={{ fill: "var(--muted)", fontSize: 12 }} />
+                          <YAxis
+                            domain={[0, 1]}
+                            tick={{ fill: "var(--muted)", fontSize: 12 }}
+                            tickFormatter={(v) => `${Math.round(Number(v) * 100)}%`}
+                          />
+                          <Tooltip
+                            formatter={(value: number) => [`${(Number(value) * 100).toFixed(1)}%`, ""]}
+                            contentStyle={{
+                              background: "var(--panel)",
+                              border: "1px solid var(--rule)",
+                            }}
+                          />
+                          <Legend />
+                          <Bar dataKey="routed" name="Routed" fill="var(--accent)" maxBarSize={40} />
+                          <Bar dataKey="baseline" name="Baseline" fill="var(--ink-soft)" maxBarSize={40} />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </section>
+                </div>
+
+                <div className="split">
+                  <section className="block">
+                    <h2>Avg latency</h2>
+                    <div className="chart chart--short">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart
+                          data={evalLatencyCompare}
+                          margin={{ top: 8, right: 8, left: -8, bottom: 0 }}
+                        >
+                          <CartesianGrid strokeDasharray="3 3" stroke="var(--rule)" vertical={false} />
+                          <XAxis dataKey="name" tick={{ fill: "var(--muted)", fontSize: 12 }} />
+                          <YAxis tick={{ fill: "var(--muted)", fontSize: 12 }} />
+                          <Tooltip
+                            formatter={(value: number) => [`${Number(value).toFixed(0)} ms`, ""]}
+                            contentStyle={{
+                              background: "var(--panel)",
+                              border: "1px solid var(--rule)",
+                            }}
+                          />
+                          <Legend />
+                          <Bar dataKey="routed" name="Routed" fill="var(--accent)" maxBarSize={48} />
+                          <Bar dataKey="baseline" name="Baseline" fill="var(--ink-soft)" maxBarSize={48} />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </section>
+                  <section className="block">
+                    <h2>Matched cost by task (INR)</h2>
+                    <div className="chart chart--short">
+                      {evalTaskChart.length === 0 ? (
+                        <p className="muted" style={{ padding: 16 }}>
+                          No per-task rows for this eval yet.
+                        </p>
+                      ) : (
+                        <ResponsiveContainer width="100%" height="100%">
+                          <BarChart
+                            data={evalTaskChart}
+                            margin={{ top: 8, right: 4, left: -18, bottom: 0 }}
+                          >
+                            <CartesianGrid strokeDasharray="3 3" stroke="var(--rule)" vertical={false} />
+                            <XAxis dataKey="task" tick={{ fill: "var(--muted)", fontSize: 11 }} />
+                            <YAxis tick={{ fill: "var(--muted)", fontSize: 12 }} />
+                            <Tooltip
+                              formatter={(value: number) => [fmtINR(Number(value)), "INR"]}
+                              contentStyle={{
+                                background: "var(--panel)",
+                                border: "1px solid var(--rule)",
+                              }}
+                            />
+                            <Legend />
+                            <Bar dataKey="routed" name="Routed" fill="var(--accent)" maxBarSize={26} />
+                            <Bar
+                              dataKey="baseline"
+                              name="Baseline"
+                              fill="var(--ink-soft)"
+                              maxBarSize={26}
+                            />
+                          </BarChart>
+                        </ResponsiveContainer>
+                      )}
+                    </div>
+                  </section>
+                </div>
+
+                {(evalResult.requests?.length ?? 0) > 0 && (
+                  <section className="block">
+                    <div className="block__head">
+                      <h2>Eval requests</h2>
+                      <span>{evalResult.requests?.length}</span>
+                    </div>
+                    <div className="table-scroll">
+                      <table className="wide">
+                        <thead>
+                          <tr>
+                            <th>Task</th>
+                            <th>Policy</th>
+                            <th>Model</th>
+                            <th>Cost</th>
+                            <th>Latency</th>
+                            <th>Quality</th>
+                            <th>OK</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {evalResult.requests?.map((r) => (
+                            <tr key={r.id}>
+                              <td>{r.task_type}</td>
+                              <td>{r.policy}</td>
+                              <td className="mono">{r.model}</td>
+                              <td>{moneyINR(Number(r.est_cost))}</td>
+                              <td>{r.latency_ms} ms</td>
+                              <td>{fmt(Number(r.quality_score), 3)}</td>
+                              <td>{r.success ? "yes" : "no"}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </section>
+                )}
               </>
             )}
           </div>
         )}
 
-        {tab === "playground" && (
-          <section className="theater">
-            <div className="theater__controls">
-              <div className="composer theater-composer">
-                <textarea
-                  aria-label="Prompt"
-                  value={prompt}
-                  onChange={(e) => setPrompt(e.target.value)}
-                  placeholder="Prompt to route…"
-                  disabled={busy}
-                />
-                <div className="composer__bar">
-                  <div className="speed-controls">
-                    <button
-                      type="button"
-                      className={`ghost${paused ? " active-toggle" : ""}`}
-                      onClick={() => setPaused((p) => !p)}
-                      disabled={!busy}
-                    >
-                      {paused ? "Resume" : "Pause"}
-                    </button>
-                    <button type="button" className={`ghost${speed === 1 ? " active-toggle" : ""}`} onClick={() => setSpeed(1)}>
-                      1x
-                    </button>
-                    <button type="button" className={`ghost${speed === 2 ? " active-toggle" : ""}`} onClick={() => setSpeed(2)}>
-                      2x
-                    </button>
-                  </div>
-                  <div className="composer__actions">
-                    <button className="ghost" disabled={busy} onClick={() => void onComplete("baseline")} type="button">
-                      Baseline
-                    </button>
-                    <button
-                      className="ghost"
-                      disabled={busy || !prompt.trim()}
-                      onClick={() => void onComplete("routed")}
-                      type="button"
-                    >
-                      Single route
-                    </button>
-                    <button
-                      className="solid"
-                      disabled={busy || !prompt.trim()}
-                      onClick={() => void onComplete("orchestra")}
-                      type="button"
-                    >
-                      {busy ? "Routing…" : "Route"}
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div className="pipeline" aria-live="polite">
-              {stageList.map((s, i) => (
-                <div
-                  key={s}
-                  className={`pipe-station${stageIndex >= i && theater.stage !== "idle" ? " lit" : ""}${
-                    theater.stage === s ? " current" : ""
-                  }`}
-                >
-                  <span className="pipe-dot" />
-                  <span className="pipe-label">{s}</span>
-                </div>
-              ))}
-              {theater.stage !== "idle" && (
-                <div
-                  className="packet"
-                  style={{
-                    ["--packet-x" as string]: `${(stageIndex / (stageList.length - 1)) * 100}%`,
-                    animationDuration: `${0.45 / speed}s`,
-                  }}
-                  title="Request packet"
-                />
-              )}
-            </div>
-
-            {isOrchestra ? (
-              <div className="theater-grid orchestra-mode">
-                <section className="block theater-panel">
-                  <h2>Decompose</h2>
-                  {theater.parts.length ? (
-                    <ul className="part-list">
-                      {theater.parts.map((p) => (
-                        <li
-                          key={p.id}
-                          className={theater.activePartId === p.id ? "part-active" : undefined}
-                        >
-                          <span className="task-pill">{p.task_type}</span>
-                          <span className="mono">{p.id}</span>
-                          <span className="muted tiny">{p.rationale}</span>
-                          <p className="part-snip">{p.text.slice(0, 140)}{p.text.length > 140 ? "…" : ""}</p>
-                        </li>
-                      ))}
-                    </ul>
-                  ) : (
-                    <p className="muted">Waiting for decomposition…</p>
-                  )}
-                </section>
-
-                <section className="block theater-panel scoreboard-panel">
-                  <h2>Specialist scoreboard</h2>
-                  <p className="formula">
-                    {theater.activePartId
-                      ? `Active part ${theater.activePartId} · score = 0.65·strength − 0.20·costₙ − 0.15·latₙ`
-                      : "score = 0.65·strength − 0.20·cost_norm − 0.15·latency_norm"}
-                  </p>
-                  <div className="table-scroll">
-                    <table>
-                      <thead>
-                        <tr>
-                          <th>Model</th>
-                          <th>Str</th>
-                          <th>Costₙ</th>
-                          <th>Latₙ</th>
-                          <th>Score</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {(theater.scoreboard.length ? theater.scoreboard : []).slice(0, 8).map((row) => (
-                          <tr
-                            key={row.id}
-                            className={`${row.eligible ? "" : "dim"} ${
-                              row.eligible && row.score === topScore ? "winner" : ""
-                            } ${theater.activeModel === row.id ? "active-row" : ""}`}
-                          >
-                            <td className="mono">{row.display_name || row.id}</td>
-                            <td>{row.eligible ? fmt(row.strength, 2) : "—"}</td>
-                            <td>{row.eligible ? fmt(row.cost_norm, 2) : "—"}</td>
-                            <td>{row.eligible ? fmt(row.latency_norm, 2) : "—"}</td>
-                            <td className="mono">{row.eligible ? fmt(row.score, 3) : "—"}</td>
-                          </tr>
-                        ))}
-                        {!theater.scoreboard.length && (
-                          <tr>
-                            <td colSpan={5} className="muted">
-                              Scoreboard fills when a part is ranked…
-                            </td>
-                          </tr>
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
-                </section>
-
-                <section className="block theater-panel cascade-panel">
-                  <h2>Specialist cascade</h2>
-                  <div className="cascade">
-                    {theater.partOutputs.map((po) => (
-                      <div key={po.part_id} className={`cascade-row outcome-${po.success ? "success" : "error"}`}>
-                        <span className="cascade-idx">{po.part_id}</span>
-                        <span className="task-pill">{po.task_type}</span>
-                        <span className="mono">{po.model}</span>
-                        <span className={`badge badge-${po.success ? "success" : "error"}`}>
-                          {po.success ? "success" : "failed"}
-                        </span>
-                        <span className="muted">{po.latency_ms} ms</span>
-                      </div>
-                    ))}
-                    {theater.attempts
-                      .filter((a) => !theater.partOutputs.some((p) => p.part_id === a.part_id && p.success))
-                      .map((a) => (
-                        <div key={`${a.part_id}-${a.index}-${a.model}`} className={`cascade-row outcome-${a.outcome}`}>
-                          <span className="cascade-idx">{a.part_id || `#${a.index + 1}`}</span>
-                          <span className="mono">{a.model}</span>
-                          <span className={`badge badge-${a.outcome}`}>{a.outcome.replace("_", " ")}</span>
-                        </div>
-                      ))}
-                    {!theater.partOutputs.length && !theater.attempts.length && (
-                      <p className="muted">Specialists appear as each part is attempted.</p>
-                    )}
-                  </div>
-                </section>
-
-                <section className="block theater-panel">
-                  <h2>Synthesize / quality</h2>
-                  <p className="proxy-label">{theater.qualityLabel}</p>
-                  {theater.synthPreview && (
-                    <p className="muted tiny">Stitch preview: {theater.synthPreview.slice(0, 120)}…</p>
-                  )}
-                  <div className="gauge">
-                    <div
-                      className="gauge__fill"
-                      style={{ width: `${Math.max(0, Math.min(100, (theater.qualityScore ?? 0) * 100))}%` }}
-                    />
-                  </div>
-                  <p className="gauge__value">
-                    {theater.qualityScore == null ? "—" : fmt(theater.qualityScore, 3)}
-                    <span> / 1.0 proxy</span>
-                  </p>
-                </section>
-              </div>
-            ) : (
-              <div className={`theater-grid${theater.result?.policy === "baseline" ? " baseline-mode" : ""}`}>
-                <section className="block theater-panel">
-                  <h2>Classify</h2>
-                  {theater.taskType ? (
-                    <p className="task-pill">{theater.taskType}</p>
-                  ) : (
-                    <p className="muted">Waiting for classification…</p>
-                  )}
-                  {theater.result?.policy === "baseline" && (
-                    <p className="lock-note">Baseline policy — single locked model, no fallbacks.</p>
-                  )}
-                </section>
-
-                <section className="block theater-panel scoreboard-panel">
-                  <h2>Scoreboard</h2>
-                  <p className="formula">score = 0.65·strength − 0.20·cost_norm − 0.15·latency_norm</p>
-                  <div className="table-scroll">
-                    <table>
-                      <thead>
-                        <tr>
-                          <th>Model</th>
-                          <th>Str</th>
-                          <th>Costₙ</th>
-                          <th>Latₙ</th>
-                          <th>Score</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {(theater.scoreboard.length ? theater.scoreboard : []).slice(0, 8).map((row) => (
-                          <tr
-                            key={row.id}
-                            className={`${row.eligible ? "" : "dim"} ${
-                              row.eligible && row.score === topScore ? "winner" : ""
-                            } ${theater.activeModel === row.id ? "active-row" : ""}`}
-                          >
-                            <td className="mono">
-                              {row.display_name || row.id}
-                              {!row.eligible && row.reject_reason ? (
-                                <span className="reject"> · {row.reject_reason}</span>
-                              ) : null}
-                            </td>
-                            <td>{row.eligible ? fmt(row.strength, 2) : "—"}</td>
-                            <td>{row.eligible ? fmt(row.cost_norm, 2) : "—"}</td>
-                            <td>{row.eligible ? fmt(row.latency_norm, 2) : "—"}</td>
-                            <td className="mono">{row.eligible ? fmt(row.score, 3) : "—"}</td>
-                          </tr>
-                        ))}
-                        {!theater.scoreboard.length && (
-                          <tr>
-                            <td colSpan={5} className="muted">
-                              Scoreboard fills after ranking…
-                            </td>
-                          </tr>
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
-                </section>
-
-                <section className="block theater-panel cascade-panel">
-                  <h2>Attempt cascade</h2>
-                  <div className="cascade">
-                    {(theater.attempts.length
-                      ? theater.attempts
-                      : theater.activeModel
-                        ? [
-                            {
-                              index: 0,
-                              model: theater.activeModel,
-                              provider: "",
-                              outcome: "success" as const,
-                              reason: null,
-                              latency_ms: 0,
-                              tokens_in: 0,
-                              tokens_out: 0,
-                              est_cost: 0,
-                            },
-                          ]
-                        : []
-                    ).map((a) => (
-                      <div key={`${a.index}-${a.model}`} className={`cascade-row outcome-${a.outcome}`}>
-                        <span className="cascade-idx">#{a.index + 1}</span>
-                        <span className="mono">{a.model}</span>
-                        <span className={`badge badge-${a.outcome}`}>{a.outcome.replace("_", " ")}</span>
-                        {a.reason && <span className="reason">{a.reason}</span>}
-                        {a.latency_ms > 0 && <span className="muted">{a.latency_ms} ms</span>}
-                      </div>
-                    ))}
-                    {!theater.attempts.length && !theater.activeModel && (
-                      <p className="muted">Attempts appear as each model is tried.</p>
-                    )}
-                  </div>
-                </section>
-
-                <section className="block theater-panel">
-                  <h2>Quality gate</h2>
-                  <p className="proxy-label">{theater.qualityLabel}</p>
-                  <div className="gauge">
-                    <div
-                      className="gauge__fill"
-                      style={{ width: `${Math.max(0, Math.min(100, (theater.qualityScore ?? 0) * 100))}%` }}
-                    />
-                  </div>
-                  <p className="gauge__value">
-                    {theater.qualityScore == null ? "—" : fmt(theater.qualityScore, 3)}
-                    <span> / 1.0 proxy</span>
-                  </p>
-                  <p className="muted tiny">Simple quality score — not ground-truth accuracy.</p>
-                </section>
-              </div>
-            )}
-
-            {theater.result && (
-              <section className="block verdict answer-panel">
-                <h2>Answer</h2>
-                <p className="muted tiny">Theater stage: verdict</p>
-                <div className="verdict__meta">
-                  <span className="mono">{theater.result.policy}</span>
-                  {theater.result.policy !== "orchestra" && (
-                    <>
-                      <span className="mono">{theater.result.model}</span>
-                      <span>{theater.result.provider}</span>
-                    </>
-                  )}
-                  <span>{theater.result.success ? "success" : "failed"}</span>
-                  <span>{moneyINR(theater.result.est_cost)}</span>
-                  <span>{theater.result.latency_ms} ms</span>
-                  {theater.result.synthesis_method && theater.result.synthesis_method !== "none" && (
-                    <span className="badge badge-success">synth={theater.result.synthesis_method}</span>
-                  )}
-                  {theater.result.fallback_used && (
-                    <span className="badge badge-error">fallback used</span>
-                  )}
-                </div>
-                {theater.result.policy === "orchestra" && !!theater.result.part_outputs?.length ? (
-                  <>
-                    <p className="rank-line">
-                      specialists {(theater.result.ranked || []).join(" → ") || "—"}
-                    </p>
-                    <div className="answer-cards">
-                      {theater.result.part_outputs.map((po) => (
-                        <article key={po.part_id} className={`answer-card${po.success ? "" : " answer-card--fail"}`}>
-                          <header className="answer-card__head">
-                            <span className="task-pill">{po.task_type}</span>
-                            <span className="mono">{po.part_id}</span>
-                            <span className="mono">{po.model}</span>
-                            <span className="muted">{po.provider}</span>
-                            <span className={`badge badge-${po.success ? "success" : "error"}`}>
-                              {po.success ? "success" : "failed"}
-                            </span>
-                            <span className="muted">{po.latency_ms} ms</span>
-                          </header>
-                          <div className="answer-card__body">
-                            {po.success ? (
-                              <MarkdownBody text={po.text} />
-                            ) : (
-                              <p className="muted">{po.error || "Specialist failed."}</p>
-                            )}
-                          </div>
-                        </article>
-                      ))}
-                    </div>
-                  </>
-                ) : (
-                  <div className="answer-single">
-                    {theater.result.success ? (
-                      <MarkdownBody text={theater.result.output} />
-                    ) : (
-                      <p className="muted">
-                        No usable output. Check API keys or inspect attempt reasons above.
-                      </p>
-                    )}
-                  </div>
-                )}
-              </section>
-            )}
-
-            {theater.stage === "idle" && (
-              <div className="empty play-empty">
-                <p>
-                  Enter a mixed prompt and press Route to watch decompose → specialists → stitch.
-                </p>
-              </div>
-            )}
-          </section>
-        )}
+        {/* Keep Chat mounted so in-flight streams + thread survive other tabs. */}
+        <div
+          className={tab === "playground" ? undefined : "tab-panel--hidden"}
+          aria-hidden={tab !== "playground"}
+        >
+          <ChatPlayground onRefresh={() => void refresh()} />
+        </div>
 
         {tab === "requests" && (
           <section className="block">
@@ -936,7 +1043,7 @@ export default function App() {
                   <tr>
                     <th>Model</th>
                     <th>Provider</th>
-                    <th>Input ₹ / 1K</th>
+                    <th>List ₹ / 1K in</th>
                     <th>Latency</th>
                     <th>Code</th>
                     <th>Summary</th>
@@ -946,14 +1053,17 @@ export default function App() {
                 <tbody>
                   {models.models.map((m) => {
                     const s = m.strengths as Record<string, number>;
+                    const listIn = Number(m.input_cost_per_1k);
+                    const freeTier = m.billable === false;
                     return (
                       <tr key={String(m.id)}>
                         <td className="mono">{String(m.display_name)}</td>
                         <td>{String(m.provider)}</td>
                         <td>
-                          {Number(m.input_cost_per_1k) === 0
-                            ? "Free"
-                            : `${fmtINRCompact(usdToInr(Number(m.input_cost_per_1k)))} / 1K`}
+                          {listIn === 0
+                            ? "₹0"
+                            : `${fmtINRCompact(usdToInr(listIn))} / 1K`}
+                          {freeTier ? " · free tier" : ""}
                         </td>
                         <td>{String(m.typical_latency_ms)} ms</td>
                         <td>{s.code}</td>

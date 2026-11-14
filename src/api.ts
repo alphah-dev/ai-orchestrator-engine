@@ -22,10 +22,42 @@ export type Metrics = {
   fallback_rate: number;
 };
 
+export type EvalTaskRow = {
+  task_type: string;
+  policy: string;
+  requests: number;
+  total_cost: number;
+  avg_latency_ms: number;
+  avg_quality: number;
+};
+
+export type EvalRequestRow = {
+  id: number;
+  task_type: string;
+  policy: string;
+  model: string;
+  provider: string;
+  est_cost: number;
+  latency_ms: number;
+  success: boolean;
+  quality_score: number;
+  prompt: string;
+};
+
 export type Overview = {
   routed: Metrics;
   baseline: Metrics;
   cost_savings_vs_baseline: number | null;
+  scope?: "live" | "all" | "eval" | string;
+  as_of?: string;
+  by_task?: EvalTaskRow[];
+  requests?: EvalRequestRow[];
+};
+
+export type EvalResult = Overview & {
+  id: string | null;
+  prompt_count?: number;
+  created_at?: string;
 };
 
 export type AttemptTrace = {
@@ -78,6 +110,11 @@ export type PartOutput = {
 };
 
 export type Policy = "orchestra" | "routed" | "baseline";
+
+export type ChatTurn = {
+  role: "user" | "assistant" | "system";
+  content: string;
+};
 
 export type CompleteResponse = {
   output: string;
@@ -133,16 +170,66 @@ export const api = {
       models: Array<Record<string, unknown>>;
       quality_label?: string;
     }>("/v1/models"),
-  latestEval: () => req<Overview & { id: string | null; prompt_count?: number }>("/v1/eval/latest"),
+  latestEval: () => req<EvalResult>("/v1/eval/latest"),
   runEval: (limit?: number) =>
-    req<Overview & { id: string; prompt_count: number }>("/v1/eval/run", {
+    req<EvalResult & { id: string; prompt_count: number }>("/v1/eval/run", {
       method: "POST",
       body: JSON.stringify({ limit: limit ?? null }),
     }),
-  complete: (prompt: string, policy: Policy) =>
+  /**
+   * Consume NDJSON progress events from /v1/eval/run/stream.
+   * Events: started → step / step_done (×N) → final.
+   */
+  async runEvalStream(
+    limit: number | undefined,
+    onEvent: (ev: StreamEvent) => void,
+  ): Promise<EvalResult & { id: string; prompt_count: number }> {
+    const res = await fetch(`${API_BASE}/v1/eval/run/stream`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ limit: limit ?? null }),
+    });
+    if (!res.ok || !res.body) {
+      throw new Error((await res.text()) || res.statusText);
+    }
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let final: (EvalResult & { id: string; prompt_count: number }) | null = null;
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() || "";
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+        const parsed = JSON.parse(trimmed) as StreamEvent;
+        onEvent(parsed);
+        if (parsed.event === "final") {
+          final = parsed.data as unknown as EvalResult & { id: string; prompt_count: number };
+        }
+      }
+    }
+    if (buffer.trim()) {
+      const parsed = JSON.parse(buffer.trim()) as StreamEvent;
+      onEvent(parsed);
+      if (parsed.event === "final") {
+        final = parsed.data as unknown as EvalResult & { id: string; prompt_count: number };
+      }
+    }
+    if (!final) throw new Error("eval stream ended without final event");
+    return final;
+  },
+  complete: (prompt: string, policy: Policy, messages?: ChatTurn[]) =>
     req<CompleteResponse>("/v1/complete", {
       method: "POST",
-      body: JSON.stringify({ prompt, policy }),
+      body: JSON.stringify({
+        prompt,
+        policy,
+        ...(messages?.length ? { messages } : {}),
+      }),
     }),
   /**
    * Consume NDJSON stage events from /v1/complete/stream.
@@ -152,16 +239,24 @@ export const api = {
     prompt: string,
     policy: Policy,
     onEvent: (ev: StreamEvent) => void,
-    opts?: { replayDelayMs?: number },
+    opts?: { replayDelayMs?: number; messages?: ChatTurn[]; signal?: AbortSignal },
   ): Promise<CompleteResponse> {
     const delay = async (ms: number) => {
       if (ms > 0) await new Promise((r) => setTimeout(r, ms));
     };
+    const messages = opts?.messages;
+    const signal = opts?.signal;
+    const aborted = () => Boolean(signal?.aborted);
     try {
       const res = await fetch(`${API_BASE}/v1/complete/stream`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt, policy }),
+        signal,
+        body: JSON.stringify({
+          prompt,
+          policy,
+          ...(messages?.length ? { messages } : {}),
+        }),
       });
       if (!res.ok || !res.body) {
         throw new Error((await res.text()) || res.statusText);
@@ -171,6 +266,10 @@ export const api = {
       let buffer = "";
       let final: CompleteResponse | null = null;
       while (true) {
+        if (aborted()) {
+          await reader.cancel().catch(() => undefined);
+          throw new DOMException("Aborted", "AbortError");
+        }
         const { done, value } = await reader.read();
         if (done) break;
         buffer += decoder.decode(value, { stream: true });
@@ -195,9 +294,16 @@ export const api = {
       }
       if (!final) throw new Error("stream ended without final event");
       return final;
-    } catch {
+    } catch (err) {
+      if (
+        aborted() ||
+        (err instanceof DOMException && err.name === "AbortError") ||
+        (err instanceof Error && err.name === "AbortError")
+      ) {
+        throw err instanceof Error ? err : new DOMException("Aborted", "AbortError");
+      }
       const beat = opts?.replayDelayMs ?? 320;
-      const result = await api.complete(prompt, policy);
+      const result = await api.complete(prompt, policy, messages);
       const events: StreamEvent[] = [];
       if (policy === "orchestra" && (result.parts?.length || 0) > 0) {
         events.push({

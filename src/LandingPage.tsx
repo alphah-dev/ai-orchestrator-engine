@@ -45,7 +45,7 @@ const PIPELINE = [
   {
     id: "call",
     title: "Call providers",
-    body: "Send each task to OpenRouter, Groq, Gemini, or NVIDIA — preferring a mix of providers when scores are close.",
+    body: "Send each task to CoArena first, then Groq, Gemini, OpenRouter, or NVIDIA when scores are close or a call fails.",
   },
   {
     id: "stitch",
@@ -78,10 +78,11 @@ const POLICIES = [
 ] as const;
 
 const PROVIDERS = [
-  { name: "OpenRouter", role: "Free models for code, extraction, analysis, and chat" },
-  { name: "Groq", role: "Fast paid models for reasoning, code, and translation" },
-  { name: "Gemini", role: "Free Flash models for QA, summaries, creative, and chat" },
-  { name: "NVIDIA", role: "Vision and math / reasoning models" },
+  { name: "CoArena", role: "Primary free catalog — Claude, GPT-6, Gemini 4, DeepSeek, Grok, and more" },
+  { name: "Groq", role: "Fallback — fast models for reasoning, code, and translation" },
+  { name: "Gemini", role: "Fallback — Flash models for QA, summaries, creative, and chat" },
+  { name: "OpenRouter", role: "Fallback — free specialty models for code and analysis" },
+  { name: "NVIDIA", role: "Fallback — vision and math / reasoning" },
 ] as const;
 
 const WEIGHTS = [
@@ -169,9 +170,10 @@ function PipelineStageVisual({ stageId }: { stageId: string }) {
         </span>
         {/* Call: provider pings */}
         <span className="flow-pings">
-          <i data-p="OpenRouter" />
+          <i data-p="CoArena" />
           <i data-p="Groq" />
           <i data-p="Gemini" />
+          <i data-p="OpenRouter" />
           <i data-p="NVIDIA" />
         </span>
         {/* Stitch: lanes converge right */}
@@ -287,7 +289,7 @@ export default function LandingPage() {
             Registry
           </Link>
           <Link className="landing__solid" to="/app?tab=playground">
-            Enter theater
+            Open chat
           </Link>
         </div>
       </header>
@@ -306,7 +308,7 @@ export default function LandingPage() {
           </p>
           <div className="landing__cta">
             <Link className="landing__solid landing__solid--lg" to="/app?tab=playground">
-              Enter theater
+              Open chat
             </Link>
             <Link className="landing__ghost landing__ghost--lg" to="/app?tab=registry">
               View registry
@@ -585,7 +587,7 @@ export default function LandingPage() {
             Orchestrator
           </p>
           <p className="landing__footer-line">
-            Open the theater to watch a live prompt move through the pipeline.
+            Open chat to ask a mixed prompt — and follow up with context.
           </p>
           <p className="landing__note">
             Quality labels are a simple guide, not a formal accuracy score. Prices on this page are INR
@@ -594,7 +596,7 @@ export default function LandingPage() {
         </div>
         <div className="landing__cta">
           <Link className="landing__solid landing__solid--lg" to="/app?tab=playground">
-            Enter theater
+            Open chat
           </Link>
           <Link className="landing__ghost landing__ghost--lg" to="/app?tab=registry">
             View registry
