@@ -12,18 +12,18 @@ import {
 import "./landing.css";
 
 const TASKS: Array<{ id: string; intent: string; home: string }> = [
-  { id: "qa", intent: "What / who / define — general factual asks", home: "Gemini 3.6 Flash" },
-  { id: "code", intent: "Write / implement functions and queries", home: "North Mini Code" },
-  { id: "debug", intent: "Fix / traceback / bug / failing tests", home: "North Mini · Laguna S" },
-  { id: "math", intent: "Calculate / compare magnitudes / equations", home: "GLM 5.3 Flash" },
-  { id: "reasoning", intent: "Step-by-step prove / logic puzzles", home: "GPT-OSS 120B" },
-  { id: "summarization", intent: "Summarize / TL;DR / compress", home: "Gemini 3.6 / Flash Lite" },
-  { id: "creative", intent: "Poem / haiku / story / fiction", home: "Gemini 3.5 Flash" },
-  { id: "translation", intent: "Translate / bilingual rewrite", home: "Qwen 3.8 27B" },
-  { id: "extraction", intent: "Extract JSON / tables / entities", home: "Laguna S · Nemotron" },
-  { id: "analysis", intent: "Compare / critique / pros & cons", home: "Nemotron Lightning" },
-  { id: "chat", intent: "Casual hello / short friendly reply", home: "LFM 2.5 · Flash Lite" },
-  { id: "vision", intent: "Image / screenshot / describe photo", home: "Llama 3.2 11B Vision" },
+  { id: "qa", intent: "What / who / define — general factual asks", home: "Llama 3.3 70B (CF)" },
+  { id: "code", intent: "Write / implement functions and queries", home: "Qwen2.5 Coder 32B (CF)" },
+  { id: "debug", intent: "Fix / traceback / bug / failing tests", home: "Qwen2.5 Coder · Kimi Code" },
+  { id: "math", intent: "Calculate / compare magnitudes / equations", home: "Qwen 3.8 27B (CF)" },
+  { id: "reasoning", intent: "Step-by-step prove / logic puzzles", home: "DeepSeek R1 (CF)" },
+  { id: "summarization", intent: "Summarize / TL;DR / compress", home: "Gemini Flash Lite" },
+  { id: "creative", intent: "Poem / haiku / story / fiction", home: "GPT-6 Luna (CoArena)" },
+  { id: "translation", intent: "Translate / bilingual rewrite", home: "Command A Translate (Cohere)" },
+  { id: "extraction", intent: "Extract JSON / tables / entities", home: "Mistral Small (CF)" },
+  { id: "analysis", intent: "Compare / critique / pros & cons", home: "Mistral Small · GLM Flash" },
+  { id: "chat", intent: "Casual hello / short friendly reply", home: "Llama 3.1 8B (CF)" },
+  { id: "vision", intent: "Image / screenshot / describe photo", home: "Command A Vision (Cohere)" },
 ];
 
 const PIPELINE = [
@@ -45,7 +45,7 @@ const PIPELINE = [
   {
     id: "call",
     title: "Call providers",
-    body: "Send each task to CoArena first, then Groq, Gemini, OpenRouter, or NVIDIA when scores are close or a call fails.",
+    body: "Send each task to Cloudflare Workers AI or Cohere first, then CoArena free, Groq, Gemini, or OpenRouter when scores are close or a call fails.",
   },
   {
     id: "stitch",
@@ -78,11 +78,12 @@ const POLICIES = [
 ] as const;
 
 const PROVIDERS = [
-  { name: "CoArena", role: "Primary free catalog — Claude, GPT-6, Gemini 4, DeepSeek, Grok, and more" },
-  { name: "Groq", role: "Fallback — fast models for reasoning, code, and translation" },
-  { name: "Gemini", role: "Fallback — Flash models for QA, summaries, creative, and chat" },
+  { name: "Cloudflare", role: "Primary free catalog — Llama, GPT-OSS, Qwen, DeepSeek R1, GLM, vision" },
+  { name: "Cohere", role: "Free trial catalog — Command A family, North Mini Code, Aya, translate/vision" },
+  { name: "CoArena", role: "Fallback free trio — Gemini 3.8 Flash, GPT-6 Luna, DeepSeek V4.1 Flash" },
+  { name: "Groq", role: "Fallback — fast GPT-OSS and Qwen for chat, code, translation" },
+  { name: "Gemini", role: "Fallback — Flash Lite for summaries, creative, and chat" },
   { name: "OpenRouter", role: "Fallback — free specialty models for code and analysis" },
-  { name: "NVIDIA", role: "Fallback — vision and math / reasoning" },
 ] as const;
 
 const WEIGHTS = [
@@ -170,11 +171,12 @@ function PipelineStageVisual({ stageId }: { stageId: string }) {
         </span>
         {/* Call: provider pings */}
         <span className="flow-pings">
+          <i data-p="Cloudflare" />
+          <i data-p="Cohere" />
           <i data-p="CoArena" />
           <i data-p="Groq" />
           <i data-p="Gemini" />
           <i data-p="OpenRouter" />
-          <i data-p="NVIDIA" />
         </span>
         {/* Stitch: lanes converge right */}
         <span className="flow-merge">
