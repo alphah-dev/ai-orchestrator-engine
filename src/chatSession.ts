@@ -56,9 +56,26 @@ function sanitizeMessages(messages: StoredChatMessage[]): StoredChatMessage[] {
     }));
 }
 
+function readPersistedRaw(): string | null {
+  try {
+    const fromLocal = localStorage.getItem(CHAT_STORE_KEY);
+    if (fromLocal) return fromLocal;
+    // Migrate older per-tab sessionStorage chats into durable localStorage.
+    const fromSession = sessionStorage.getItem(CHAT_STORE_KEY);
+    if (fromSession) {
+      localStorage.setItem(CHAT_STORE_KEY, fromSession);
+      sessionStorage.removeItem(CHAT_STORE_KEY);
+      return fromSession;
+    }
+  } catch {
+    /* private mode / blocked storage */
+  }
+  return null;
+}
+
 export function loadChatStore(): ChatStore {
   try {
-    const raw = sessionStorage.getItem(CHAT_STORE_KEY);
+    const raw = readPersistedRaw();
     if (!raw) {
       const conv = createConversation();
       return { activeId: conv.id, conversations: [conv] };
@@ -95,7 +112,11 @@ export function saveChatStore(store: ChatStore): void {
       title: c.messages.length ? titleFromMessages(c.messages) : c.title || "New chat",
     })),
   };
-  sessionStorage.setItem(CHAT_STORE_KEY, JSON.stringify(payload));
+  try {
+    localStorage.setItem(CHAT_STORE_KEY, JSON.stringify(payload));
+  } catch {
+    /* quota / private mode — chat still works in-memory for this tab */
+  }
 }
 
 export function upsertActiveConversation(
