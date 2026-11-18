@@ -800,8 +800,6 @@ export default function App() {
                   {" · "}
                   quality = simple score (not ground truth)
                 </p>
-                <MetricStrip title="Routed" m={evalResult.routed} savings={evalResult.cost_savings_vs_baseline} />
-                <MetricStrip title="Baseline" m={evalResult.baseline} />
 
                 {evalResult.cost_savings_vs_baseline != null && evalSavedInr > 0 && (
                   <section className="eval-savings" aria-label="Eval savings">
@@ -817,89 +815,188 @@ export default function App() {
                   </section>
                 )}
 
-                <div className="split">
+                <div className="baseline-metrics">
+                  <MetricStrip
+                    title="Routed"
+                    m={evalResult.routed}
+                    savings={evalResult.cost_savings_vs_baseline}
+                  />
+                  <MetricStrip title="Baseline" m={evalResult.baseline} />
+                </div>
+
+                <div className="split baseline-charts">
                   <section className="block">
                     <h2>Cost (INR)</h2>
-                    <div className="chart chart--short">
+                    <div className="chart chart--baseline">
                       <ResponsiveContainer width="100%" height="100%">
-                        <BarChart data={evalCostCompare} margin={{ top: 8, right: 8, left: -8, bottom: 0 }}>
+                        <BarChart
+                          data={evalCostCompare}
+                          margin={{ top: 12, right: 12, left: 0, bottom: 8 }}
+                          barCategoryGap="28%"
+                          barGap={8}
+                        >
                           <CartesianGrid strokeDasharray="3 3" stroke="var(--rule)" vertical={false} />
-                          <XAxis dataKey="name" tick={{ fill: "var(--muted)", fontSize: 12 }} />
-                          <YAxis tick={{ fill: "var(--muted)", fontSize: 12 }} />
-                          <Tooltip
-                            formatter={(value: number) => [fmtINR(Number(value)), "INR"]}
-                            contentStyle={{
-                              background: "var(--panel)",
-                              border: "1px solid var(--rule)",
-                            }}
+                          <XAxis
+                            dataKey="name"
+                            axisLine={false}
+                            tickLine={false}
+                            tick={{ fill: "var(--muted)", fontSize: 12 }}
                           />
-                          <Legend />
-                          <Bar dataKey="routed" name="Routed" fill="var(--accent)" maxBarSize={48} />
-                          <Bar dataKey="baseline" name="Baseline" fill="var(--ink-soft)" maxBarSize={48} />
+                          <YAxis
+                            axisLine={false}
+                            tickLine={false}
+                            width={44}
+                            tick={{ fill: "var(--muted)", fontSize: 11 }}
+                            tickFormatter={(v: number) => `₹${Number(v).toFixed(0)}`}
+                          />
+                          <Tooltip
+                            cursor={chartHoverCursor}
+                            contentStyle={chartTooltipStyle}
+                            labelStyle={{ color: "var(--muted)", marginBottom: 4 }}
+                            itemStyle={{ color: "var(--ink)" }}
+                            formatter={(value: number, name: string) => [fmtINR(Number(value)), name]}
+                            allowEscapeViewBox={{ x: true, y: true }}
+                          />
+                          <Legend wrapperStyle={{ color: "var(--muted)", fontSize: 12, paddingTop: 4 }} />
+                          <Bar
+                            dataKey="routed"
+                            name="Routed"
+                            fill="var(--accent)"
+                            maxBarSize={72}
+                            radius={[4, 4, 0, 0]}
+                            activeBar={{ fill: "var(--accent)", stroke: "var(--ink)", strokeWidth: 1 }}
+                          />
+                          <Bar
+                            dataKey="baseline"
+                            name="Baseline"
+                            fill="var(--ink-soft)"
+                            maxBarSize={72}
+                            radius={[4, 4, 0, 0]}
+                            activeBar={{ fill: "var(--ink-soft)", stroke: "var(--ink)", strokeWidth: 1 }}
+                          />
                         </BarChart>
                       </ResponsiveContainer>
                     </div>
                   </section>
                   <section className="block">
                     <h2>Quality & success</h2>
-                    <div className="chart chart--short">
+                    <div className="chart chart--baseline">
                       <ResponsiveContainer width="100%" height="100%">
                         <BarChart
                           data={evalQualityCompare}
-                          margin={{ top: 8, right: 8, left: -8, bottom: 0 }}
+                          margin={{ top: 12, right: 12, left: 0, bottom: 8 }}
+                          barCategoryGap="22%"
+                          barGap={6}
                         >
                           <CartesianGrid strokeDasharray="3 3" stroke="var(--rule)" vertical={false} />
-                          <XAxis dataKey="name" tick={{ fill: "var(--muted)", fontSize: 12 }} />
+                          <XAxis
+                            dataKey="name"
+                            axisLine={false}
+                            tickLine={false}
+                            tick={{ fill: "var(--muted)", fontSize: 12 }}
+                          />
                           <YAxis
                             domain={[0, 1]}
-                            tick={{ fill: "var(--muted)", fontSize: 12 }}
+                            axisLine={false}
+                            tickLine={false}
+                            width={44}
+                            tick={{ fill: "var(--muted)", fontSize: 11 }}
                             tickFormatter={(v) => `${Math.round(Number(v) * 100)}%`}
                           />
                           <Tooltip
-                            formatter={(value: number) => [`${(Number(value) * 100).toFixed(1)}%`, ""]}
-                            contentStyle={{
-                              background: "var(--panel)",
-                              border: "1px solid var(--rule)",
-                            }}
+                            cursor={chartHoverCursor}
+                            contentStyle={chartTooltipStyle}
+                            labelStyle={{ color: "var(--muted)", marginBottom: 4 }}
+                            itemStyle={{ color: "var(--ink)" }}
+                            formatter={(value: number, name: string) => [
+                              `${(Number(value) * 100).toFixed(1)}%`,
+                              name,
+                            ]}
+                            allowEscapeViewBox={{ x: true, y: true }}
                           />
-                          <Legend />
-                          <Bar dataKey="routed" name="Routed" fill="var(--accent)" maxBarSize={40} />
-                          <Bar dataKey="baseline" name="Baseline" fill="var(--ink-soft)" maxBarSize={40} />
+                          <Legend wrapperStyle={{ color: "var(--muted)", fontSize: 12, paddingTop: 4 }} />
+                          <Bar
+                            dataKey="routed"
+                            name="Routed"
+                            fill="var(--accent)"
+                            maxBarSize={56}
+                            radius={[4, 4, 0, 0]}
+                            activeBar={{ fill: "var(--accent)", stroke: "var(--ink)", strokeWidth: 1 }}
+                          />
+                          <Bar
+                            dataKey="baseline"
+                            name="Baseline"
+                            fill="var(--ink-soft)"
+                            maxBarSize={56}
+                            radius={[4, 4, 0, 0]}
+                            activeBar={{ fill: "var(--ink-soft)", stroke: "var(--ink)", strokeWidth: 1 }}
+                          />
                         </BarChart>
                       </ResponsiveContainer>
                     </div>
                   </section>
                 </div>
 
-                <div className="split">
+                <div className="split baseline-charts">
                   <section className="block">
                     <h2>Avg latency</h2>
-                    <div className="chart chart--short">
+                    <div className="chart chart--baseline">
                       <ResponsiveContainer width="100%" height="100%">
                         <BarChart
                           data={evalLatencyCompare}
-                          margin={{ top: 8, right: 8, left: -8, bottom: 0 }}
+                          margin={{ top: 12, right: 12, left: 0, bottom: 8 }}
+                          barCategoryGap="28%"
+                          barGap={8}
                         >
                           <CartesianGrid strokeDasharray="3 3" stroke="var(--rule)" vertical={false} />
-                          <XAxis dataKey="name" tick={{ fill: "var(--muted)", fontSize: 12 }} />
-                          <YAxis tick={{ fill: "var(--muted)", fontSize: 12 }} />
-                          <Tooltip
-                            formatter={(value: number) => [`${Number(value).toFixed(0)} ms`, ""]}
-                            contentStyle={{
-                              background: "var(--panel)",
-                              border: "1px solid var(--rule)",
-                            }}
+                          <XAxis
+                            dataKey="name"
+                            axisLine={false}
+                            tickLine={false}
+                            tick={{ fill: "var(--muted)", fontSize: 12 }}
                           />
-                          <Legend />
-                          <Bar dataKey="routed" name="Routed" fill="var(--accent)" maxBarSize={48} />
-                          <Bar dataKey="baseline" name="Baseline" fill="var(--ink-soft)" maxBarSize={48} />
+                          <YAxis
+                            axisLine={false}
+                            tickLine={false}
+                            width={52}
+                            tick={{ fill: "var(--muted)", fontSize: 11 }}
+                            tickFormatter={(v: number) => `${Math.round(Number(v) / 1000)}k`}
+                          />
+                          <Tooltip
+                            cursor={chartHoverCursor}
+                            contentStyle={chartTooltipStyle}
+                            labelStyle={{ color: "var(--muted)", marginBottom: 4 }}
+                            itemStyle={{ color: "var(--ink)" }}
+                            formatter={(value: number, name: string) => [
+                              `${Number(value).toFixed(0)} ms`,
+                              name,
+                            ]}
+                            allowEscapeViewBox={{ x: true, y: true }}
+                          />
+                          <Legend wrapperStyle={{ color: "var(--muted)", fontSize: 12, paddingTop: 4 }} />
+                          <Bar
+                            dataKey="routed"
+                            name="Routed"
+                            fill="var(--accent)"
+                            maxBarSize={72}
+                            radius={[4, 4, 0, 0]}
+                            activeBar={{ fill: "var(--accent)", stroke: "var(--ink)", strokeWidth: 1 }}
+                          />
+                          <Bar
+                            dataKey="baseline"
+                            name="Baseline"
+                            fill="var(--ink-soft)"
+                            maxBarSize={72}
+                            radius={[4, 4, 0, 0]}
+                            activeBar={{ fill: "var(--ink-soft)", stroke: "var(--ink)", strokeWidth: 1 }}
+                          />
                         </BarChart>
                       </ResponsiveContainer>
                     </div>
                   </section>
                   <section className="block">
                     <h2>Matched cost by task (INR)</h2>
-                    <div className="chart chart--short">
+                    <div className="chart chart--baseline">
                       {evalTaskChart.length === 0 ? (
                         <p className="muted" style={{ padding: 16 }}>
                           No per-task rows for this eval yet.
@@ -908,25 +1005,52 @@ export default function App() {
                         <ResponsiveContainer width="100%" height="100%">
                           <BarChart
                             data={evalTaskChart}
-                            margin={{ top: 8, right: 4, left: -18, bottom: 0 }}
+                            margin={{ top: 12, right: 8, left: 0, bottom: 12 }}
+                            barCategoryGap="18%"
+                            barGap={6}
                           >
                             <CartesianGrid strokeDasharray="3 3" stroke="var(--rule)" vertical={false} />
-                            <XAxis dataKey="task" tick={{ fill: "var(--muted)", fontSize: 11 }} />
-                            <YAxis tick={{ fill: "var(--muted)", fontSize: 12 }} />
-                            <Tooltip
-                              formatter={(value: number) => [fmtINR(Number(value)), "INR"]}
-                              contentStyle={{
-                                background: "var(--panel)",
-                                border: "1px solid var(--rule)",
-                              }}
+                            <XAxis
+                              dataKey="task"
+                              axisLine={false}
+                              tickLine={false}
+                              interval={0}
+                              angle={-18}
+                              textAnchor="end"
+                              height={48}
+                              tick={{ fill: "var(--muted)", fontSize: 11 }}
                             />
-                            <Legend />
-                            <Bar dataKey="routed" name="Routed" fill="var(--accent)" maxBarSize={26} />
+                            <YAxis
+                              axisLine={false}
+                              tickLine={false}
+                              width={44}
+                              tick={{ fill: "var(--muted)", fontSize: 11 }}
+                              tickFormatter={(v: number) => `₹${Number(v).toFixed(0)}`}
+                            />
+                            <Tooltip
+                              cursor={chartHoverCursor}
+                              contentStyle={chartTooltipStyle}
+                              labelStyle={{ color: "var(--muted)", marginBottom: 4 }}
+                              itemStyle={{ color: "var(--ink)" }}
+                              formatter={(value: number, name: string) => [fmtINR(Number(value)), name]}
+                              allowEscapeViewBox={{ x: true, y: true }}
+                            />
+                            <Legend wrapperStyle={{ color: "var(--muted)", fontSize: 12, paddingTop: 4 }} />
+                            <Bar
+                              dataKey="routed"
+                              name="Routed"
+                              fill="var(--accent)"
+                              maxBarSize={40}
+                              radius={[3, 3, 0, 0]}
+                              activeBar={{ fill: "var(--accent)", stroke: "var(--ink)", strokeWidth: 1 }}
+                            />
                             <Bar
                               dataKey="baseline"
                               name="Baseline"
                               fill="var(--ink-soft)"
-                              maxBarSize={26}
+                              maxBarSize={40}
+                              radius={[3, 3, 0, 0]}
+                              activeBar={{ fill: "var(--ink-soft)", stroke: "var(--ink)", strokeWidth: 1 }}
                             />
                           </BarChart>
                         </ResponsiveContainer>

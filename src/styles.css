@@ -409,8 +409,29 @@ button {
   height: 220px;
 }
 
+.chart--baseline {
+  height: 280px;
+  min-width: 0;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
 .chart--tall {
   height: 320px;
+}
+
+.baseline-metrics {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 4px;
+}
+
+.baseline-charts {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.baseline-charts .block {
+  min-width: 0;
 }
 
 .overview-dash {
@@ -532,7 +553,7 @@ button {
 }
 
 .eval-savings {
-  padding: 18px 20px;
+  padding: 16px 18px;
   border: 1px solid rgba(92, 255, 176, 0.28);
   border-radius: 12px;
   background: rgba(92, 255, 176, 0.06);
@@ -550,10 +571,12 @@ button {
 .eval-savings__value {
   margin: 0 0 6px;
   font-family: var(--display);
-  font-size: clamp(1.4rem, 2.5vw, 1.85rem);
+  font-size: clamp(1.25rem, 4.2vw, 1.85rem);
   letter-spacing: -0.02em;
   color: var(--accent);
   font-weight: 600;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
 }
 
 .eval-savings__value span {
@@ -566,6 +589,7 @@ button {
   margin: 0;
   color: var(--muted);
   font-size: 0.9rem;
+  overflow-wrap: anywhere;
   line-height: 1.45;
 }
 
@@ -1153,12 +1177,22 @@ table tr.dim td {
 
 @media (max-width: 900px) {
   .split,
-  .theater-grid {
+  .theater-grid,
+  .baseline-charts {
     grid-template-columns: 1fr;
   }
 
   .metric-strip__row {
     grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .baseline-metrics .metric-strip__row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px 14px;
+  }
+
+  .chart--baseline {
+    height: 300px;
   }
 
   .pipeline {
@@ -1224,15 +1258,53 @@ table tr.dim td {
   .metric-strip__title {
     flex-direction: column;
     align-items: flex-start;
+    gap: 4px;
+    padding: 12px 0 8px;
+  }
+
+  .metric-strip__title h2 {
+    font-size: 0.74rem;
+  }
+
+  .savings {
+    font-size: 0.74rem;
+    line-height: 1.35;
   }
 
   .metric-strip__row {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px 12px;
+    padding-bottom: 12px;
+  }
+
+  .metric-strip__row dt {
+    margin-bottom: 3px;
+    font-size: 0.7rem;
   }
 
   .metric-strip__row dd {
-    font-size: 1rem;
+    font-size: 0.98rem;
     overflow-wrap: anywhere;
+  }
+
+  .baseline-metrics {
+    gap: 0;
+  }
+
+  .baseline-metrics .metric-strip + .metric-strip {
+    border-top-style: dashed;
+  }
+
+  .chart--baseline {
+    height: 290px;
+  }
+
+  .eval-savings {
+    padding: 14px;
+  }
+
+  .eval-savings__note code {
+    word-break: break-all;
   }
 
   .logo-sub {
@@ -1286,9 +1358,37 @@ table tr.dim td {
   }
 }
 
+@media (min-width: 900px) {
+  .baseline-metrics {
+    grid-template-columns: 1fr 1fr;
+    gap: 0 28px;
+    align-items: start;
+  }
+
+  .baseline-metrics .metric-strip {
+    border-top: none;
+    padding-top: 0;
+  }
+
+  .baseline-metrics .metric-strip:first-child {
+    border-right: 1px solid var(--rule);
+    padding-right: 20px;
+  }
+}
+
 @media (max-width: 480px) {
-  .metric-strip__row {
-    grid-template-columns: 1fr;
+  /* Keep Baseline KPIs in a compact 2-col grid — single column looks sparse */
+  .metric-strip__row,
+  .baseline-metrics .metric-strip__row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .metric-strip__row dd {
+    font-size: 0.92rem;
+  }
+
+  .chart--baseline {
+    height: 270px;
   }
 
   .pipeline {
