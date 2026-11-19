@@ -1,4 +1,4 @@
-/** Tiny zero-dep markdown renderer for answer bodies (headings, bold, lists, fences). */
+/** Tiny zero-dep markdown renderer for answer bodies (headings, bold, lists, fences, tables). */
 import type { ReactNode } from "react";
 
 function inlineFormat(text: string): ReactNode[] {
@@ -27,6 +27,32 @@ function inlineFormat(text: string): ReactNode[] {
   return nodes;
 }
 
+function splitRow(line: string): string[] {
+  let s = line.trim();
+  if (s.startsWith("|")) s = s.slice(1);
+  if (s.endsWith("|")) s = s.slice(0, -1);
+  return s.split("|").map((c) => c.trim());
+}
+
+function isSeparatorRow(line: string): boolean {
+  const cells = splitRow(line);
+  if (!cells.length) return false;
+  return cells.every((c) => /^:?-{3,}:?$/.test(c));
+}
+
+function looksLikeTableRow(line: string): boolean {
+  const t = line.trim();
+  return t.includes("|") && !t.startsWith("```");
+}
+
+function startsTable(lines: string[], i: number): boolean {
+  return (
+    looksLikeTableRow(lines[i]) &&
+    i + 1 < lines.length &&
+    isSeparatorRow(lines[i + 1])
+  );
+}
+
 export function MarkdownBody({ text }: { text: string }) {
   const source = (text || "").replace(/\r\n/g, "\n").trim();
   if (!source) return <p className="muted">—</p>;
@@ -52,6 +78,39 @@ export function MarkdownBody({ text }: { text: string }) {
         <pre key={key++} className="md-code" data-lang={lang || undefined}>
           <code>{codeLines.join("\n")}</code>
         </pre>,
+      );
+      continue;
+    }
+
+    if (startsTable(lines, i)) {
+      const header = splitRow(line);
+      i += 2; // skip header + separator
+      const rows: string[][] = [];
+      while (i < lines.length && looksLikeTableRow(lines[i]) && !isSeparatorRow(lines[i])) {
+        rows.push(splitRow(lines[i]));
+        i += 1;
+      }
+      blocks.push(
+        <div key={key++} className="md-table-wrap">
+          <table className="md-table">
+            <thead>
+              <tr>
+                {header.map((cell, idx) => (
+                  <th key={idx}>{inlineFormat(cell)}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row, rIdx) => (
+                <tr key={rIdx}>
+                  {header.map((_, cIdx) => (
+                    <td key={cIdx}>{inlineFormat(row[cIdx] ?? "")}</td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>,
       );
       continue;
     }
@@ -129,7 +188,8 @@ export function MarkdownBody({ text }: { text: string }) {
       !lines[i].startsWith("```") &&
       !/^#{1,3}\s+/.test(lines[i]) &&
       !/^\s*[-*•]\s+/.test(lines[i]) &&
-      !/^\s*\d+[\).]\s+/.test(lines[i])
+      !/^\s*\d+[\).]\s+/.test(lines[i]) &&
+      !startsTable(lines, i)
     ) {
       para.push(lines[i]);
       i += 1;

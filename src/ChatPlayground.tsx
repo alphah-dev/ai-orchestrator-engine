@@ -21,6 +21,7 @@ import {
 } from "./chatSession";
 import { fmtINR, usdToInr } from "./landingEconomics";
 import { MarkdownBody } from "./markdown";
+import { OrchestraAnswer } from "./OrchestraAnswer";
 
 type Stage =
   | "idle"
@@ -776,6 +777,10 @@ export default function ChatPlayground({ onRefresh }: { onRefresh?: () => void }
                         policy={policy}
                         showThinking
                       />
+                    ) : m.role === "assistant" &&
+                      m.meta?.policy === "orchestra" &&
+                      (m.meta.part_outputs?.length ?? 0) > 0 ? (
+                      <OrchestraAnswer meta={m.meta} />
                     ) : m.role === "assistant" ? (
                       <MarkdownBody text={m.content} />
                     ) : (

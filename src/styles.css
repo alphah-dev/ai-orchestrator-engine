@@ -1046,38 +1046,86 @@ table tr.dim td {
   margin-top: 8px;
 }
 
+.orchestra-answer {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.orchestra-answer__summary {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--muted);
+  letter-spacing: 0.01em;
+}
+
 .answer-cards {
   display: flex;
   flex-direction: column;
-  gap: 14px;
-  margin-top: 12px;
+  gap: 12px;
+  margin-top: 0;
 }
 
 .answer-card {
   border: 1px solid var(--rule);
-  padding: 12px 14px 14px;
-  background: var(--panel);
+  border-radius: 4px;
+  padding: 10px 12px 12px;
+  background: color-mix(in srgb, var(--panel) 92%, var(--ink) 8%);
 }
 
 .answer-card--fail {
   border-color: var(--bad);
+  background: color-mix(in srgb, var(--panel) 88%, var(--bad) 12%);
 }
 
 .answer-card__head {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px 12px;
-  margin-bottom: 10px;
+  gap: 6px 10px;
+  margin-bottom: 8px;
   padding-bottom: 8px;
   border-bottom: 1px solid var(--rule);
-  font-size: 0.82rem;
+  font-size: 0.78rem;
+}
+
+.answer-card__index {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.55rem;
+  height: 1.55rem;
+  padding: 0 0.3rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent, #3d6bf3) 18%, transparent);
+  color: var(--ink);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  font-size: 0.75rem;
+}
+
+.answer-card__model {
+  font-size: 0.74rem;
+  opacity: 0.9;
+  max-width: 14rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.answer-card__provider {
+  font-size: 0.72rem;
+  margin-left: auto;
 }
 
 .answer-card__body {
-  font-size: 0.92rem;
-  line-height: 1.55;
+  font-size: 0.9rem;
+  line-height: 1.5;
   color: var(--ink);
+}
+
+.answer-card__body .md-body {
+  gap: 0.45rem;
 }
 
 .answer-single {
@@ -1089,12 +1137,12 @@ table tr.dim td {
 .md-body {
   display: flex;
   flex-direction: column;
-  gap: 0.65rem;
+  gap: 0.5rem;
 }
 
 .md-h {
-  margin: 0.35rem 0 0;
-  font-size: 1rem;
+  margin: 0.2rem 0 0;
+  font-size: 0.95rem;
   font-weight: 650;
 }
 
@@ -1104,11 +1152,46 @@ table tr.dim td {
 
 .md-list {
   margin: 0;
-  padding-left: 1.25rem;
+  padding-left: 1.2rem;
 }
 
 .md-list li {
-  margin: 0.2rem 0;
+  margin: 0.15rem 0;
+}
+
+.md-table-wrap {
+  width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  margin: 0.15rem 0;
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+}
+
+.md-table {
+  width: 100%;
+  min-width: 280px;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+  line-height: 1.4;
+}
+
+.md-table th,
+.md-table td {
+  padding: 0.4rem 0.55rem;
+  border-bottom: 1px solid var(--rule);
+  text-align: left;
+  vertical-align: top;
+}
+
+.md-table th {
+  font-weight: 650;
+  background: color-mix(in srgb, var(--rule) 45%, transparent);
+  white-space: nowrap;
+}
+
+.md-table tr:last-child td {
+  border-bottom: none;
 }
 
 .md-inline-code {
@@ -2210,19 +2293,25 @@ table tr.dim td {
 
 .chat__specialists article {
   border: 1px solid var(--rule);
-  border-radius: 2px;
-  padding: 8px 10px;
+  border-radius: 4px;
+  padding: 10px 12px;
+  background: color-mix(in srgb, var(--panel) 92%, var(--ink) 8%);
 }
 
 .chat__specialists article.is-fail {
   border-color: var(--bad);
+  background: color-mix(in srgb, var(--panel) 88%, var(--bad) 12%);
 }
 
 .chat__specialists header {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
-  margin-bottom: 6px;
+  align-items: center;
+  gap: 6px 10px;
+  margin-bottom: 8px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--rule);
+  font-size: 0.78rem;
 }
 
 @media (max-width: 960px) {
@@ -2250,6 +2339,31 @@ table tr.dim td {
 
   .chat__mode-btn {
     width: 100%;
+  }
+
+  .orchestra-answer__summary {
+    font-size: 0.76rem;
+  }
+
+  .answer-card {
+    padding: 9px 10px 10px;
+  }
+
+  .answer-card__provider {
+    margin-left: 0;
+  }
+
+  .answer-card__model {
+    max-width: 100%;
+  }
+
+  .md-table {
+    font-size: 0.78rem;
+  }
+
+  .md-table th,
+  .md-table td {
+    padding: 0.35rem 0.45rem;
   }
 }
 
