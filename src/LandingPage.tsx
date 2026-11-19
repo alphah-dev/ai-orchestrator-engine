@@ -298,7 +298,7 @@ export default function LandingPage() {
 
       <header className="landing__nav">
         <a className="landing__mark" href="#top">
-          <img className="landing__mark-icon" src="/orchestrator-mark.svg" alt="" width={28} height={28} />
+          <img className="landing__mark-icon" src="/orchestrator-mark.svg" alt="" width={32} height={32} />
           Orchestrator
         </a>
         <nav className="landing__nav-links" aria-label="Sections">

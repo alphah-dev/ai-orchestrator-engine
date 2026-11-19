@@ -427,7 +427,7 @@ export default function App() {
       <header className="top">
         <div className="top__brand">
           <Link to="/" className="logo" style={{ textDecoration: "none", color: "inherit" }}>
-            <img className="logo-icon" src="/orchestrator-mark.svg" alt="" width={22} height={22} />
+            <img className="logo-icon" src="/orchestrator-mark.svg" alt="" width={26} height={26} />
             <span>Orchestrator</span>
           </Link>
         </div>
