@@ -93,9 +93,31 @@ const WEIGHTS = [
 ] as const;
 
 const NAV_SECTIONS = [
+  { id: "unique", label: "Unique" },
   { id: "pipeline", label: "Pipeline" },
   { id: "tasks", label: "Tasks" },
   { id: "economics", label: "INR economics" },
+] as const;
+
+const UNIQUE_PILLARS = [
+  {
+    id: "split",
+    title: "Split → specialists → stitch",
+    body: "Break a mixed prompt into specialty tasks, run each on a fitting model, and return one clear answer — not one model for everything.",
+    image: "/unique-split.jpg",
+  },
+  {
+    id: "score",
+    title: "Score on quality, cost, speed",
+    body: "Rank with a transparent formula. Prefer free-tier providers when quality is close so the route stays sharp and cheap.",
+    image: "/unique-score.jpg",
+  },
+  {
+    id: "theater",
+    title: "See the route",
+    body: "Watch decompose, specialists, and stitch in Routing Theater. Inspect every part — not a black-box reply.",
+    image: "/unique-theater.jpg",
+  },
 ] as const;
 
 const scenario = computeScenario();
@@ -247,7 +269,7 @@ export default function LandingPage() {
   const scoringReveal = useInView<HTMLUListElement>();
 
   useEffect(() => {
-    const ids = ["problem", "pipeline", "tasks", "scoring", "policies", "providers", "economics"];
+    const ids = ["problem", "unique", "pipeline", "tasks", "scoring", "policies", "providers", "economics"];
     const els = ids.map((id) => document.getElementById(id)).filter(Boolean) as HTMLElement[];
     if (!els.length) return;
     const io = new IntersectionObserver(
@@ -258,7 +280,7 @@ export default function LandingPage() {
         const top = visible[0]?.target.id;
         if (top && NAV_SECTIONS.some((n) => n.id === top)) setActiveNav(top);
         else if (top === "scoring" || top === "policies" || top === "providers") setActiveNav("pipeline");
-        else if (top === "problem") setActiveNav("pipeline");
+        else if (top === "problem") setActiveNav("unique");
       },
       { threshold: [0.2, 0.45], rootMargin: "-20% 0px -45% 0px" },
     );
@@ -365,6 +387,48 @@ export default function LandingPage() {
                 <strong>{fmtINR(scenario.orchestraInr)}</strong>.
               </p>
             </div>
+          </div>
+        </Reveal>
+      </section>
+
+      <section className="landing__section landing__section--unique" id="unique">
+        <Reveal>
+          <div className="landing__unique-hero">
+            <div className="landing__unique-media" aria-hidden="true">
+              <img
+                className="landing__unique-signal"
+                src="/unique-signal.jpg"
+                alt=""
+              />
+              <div className="landing__unique-veil" />
+              <div className="landing__unique-scan" />
+            </div>
+            <div className="landing__section-head landing__section-head--unique">
+              <p className="landing__eyebrow">What makes us unique</p>
+              <h2>Routing you can see. Specialists you can trust.</h2>
+              <p className="landing__section-lede">
+                Orchestrator is not another single-model chat. It decomposes the ask, scores free-tier specialists,
+                and stitches a response you can inspect step by step.
+              </p>
+            </div>
+          </div>
+          <div className="landing__unique-pillars">
+            {UNIQUE_PILLARS.map((pillar, i) => (
+              <article
+                key={pillar.id}
+                className="landing__unique-pillar"
+                style={{ ["--pillar-delay" as string]: `${i * 80}ms` }}
+              >
+                <div className="landing__unique-pillar-media" aria-hidden="true">
+                  <img src={pillar.image} alt="" />
+                </div>
+                <div className="landing__unique-pillar-copy">
+                  <span className="landing__unique-pillar-idx">{String(i + 1).padStart(2, "0")}</span>
+                  <h3>{pillar.title}</h3>
+                  <p>{pillar.body}</p>
+                </div>
+              </article>
+            ))}
           </div>
         </Reveal>
       </section>

@@ -392,6 +392,166 @@
   padding-top: 5rem;
 }
 
+.landing__section--unique {
+  max-width: min(1120px, 100%);
+  padding-top: 4rem;
+  padding-bottom: 4.5rem;
+}
+
+.landing__unique-hero {
+  position: relative;
+  margin-bottom: 2rem;
+}
+
+.landing__unique-media {
+  position: relative;
+  height: clamp(200px, 32vw, 340px);
+  overflow: hidden;
+  border: 1px solid var(--lp-rule);
+  border-radius: 2px;
+  background: #05070a;
+  margin-bottom: 1.75rem;
+}
+
+.landing__unique-signal {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center;
+  display: block;
+  transform: scale(1.06);
+  animation: landing-unique-ken 18s ease-in-out infinite alternate;
+}
+
+.landing__unique-veil {
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(180deg, rgba(7, 9, 12, 0.15) 0%, rgba(7, 9, 12, 0.55) 70%, rgba(7, 9, 12, 0.92) 100%),
+    linear-gradient(90deg, rgba(7, 9, 12, 0.35) 0%, transparent 40%);
+  pointer-events: none;
+}
+
+.landing__unique-scan {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 1px;
+  top: 0;
+  background: linear-gradient(90deg, transparent, var(--lp-signal), transparent);
+  opacity: 0.55;
+  animation: landing-unique-scan 5.5s ease-in-out infinite;
+  pointer-events: none;
+}
+
+.landing__section-head--unique {
+  max-width: 40rem;
+  margin-bottom: 0;
+}
+
+.landing__unique-pillars {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1rem;
+  margin-top: 2rem;
+}
+
+.landing__unique-pillar {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  border-top: 1px solid rgba(92, 255, 176, 0.35);
+  padding-top: 0;
+  opacity: 0;
+  transform: translateY(12px);
+  transition:
+    opacity 0.55s ease,
+    transform 0.55s ease;
+  transition-delay: var(--pillar-delay, 0ms);
+}
+
+.landing__reveal.is-visible .landing__unique-pillar {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.landing__unique-pillar-media {
+  position: relative;
+  height: 140px;
+  overflow: hidden;
+  border: 1px solid var(--lp-rule);
+  border-bottom: none;
+  background: #05070a;
+}
+
+.landing__unique-pillar-media img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  transform: scale(1.04);
+  transition: transform 0.7s ease;
+}
+
+.landing__unique-pillar:hover .landing__unique-pillar-media img {
+  transform: scale(1.08);
+}
+
+.landing__unique-pillar-copy {
+  padding: 1rem 0.15rem 0.25rem;
+  border-top: 1px solid var(--lp-rule);
+}
+
+.landing__unique-pillar-idx {
+  display: block;
+  font-family: var(--lp-mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  color: var(--lp-signal);
+  margin-bottom: 0.45rem;
+}
+
+.landing__unique-pillar-copy h3 {
+  font-family: var(--lp-display);
+  font-size: 1.05rem;
+  letter-spacing: -0.02em;
+  margin: 0 0 0.45rem;
+  line-height: 1.3;
+}
+
+.landing__unique-pillar-copy p {
+  margin: 0;
+  color: #c2cad2;
+  font-size: 0.92rem;
+  line-height: 1.6;
+}
+
+@keyframes landing-unique-ken {
+  from {
+    transform: scale(1.06) translate3d(0, 0, 0);
+  }
+  to {
+    transform: scale(1.12) translate3d(-1.5%, -1%, 0);
+  }
+}
+
+@keyframes landing-unique-scan {
+  0% {
+    top: 8%;
+    opacity: 0;
+  }
+  15% {
+    opacity: 0.55;
+  }
+  85% {
+    opacity: 0.35;
+  }
+  100% {
+    top: 88%;
+    opacity: 0;
+  }
+}
+
 .landing__section-head {
   max-width: 44rem;
   margin-bottom: 2rem;
@@ -1503,8 +1663,17 @@
   }
 
   .landing__compare,
-  .landing__savings {
+  .landing__savings,
+  .landing__unique-pillars {
     grid-template-columns: 1fr;
+  }
+
+  .landing__unique-media {
+    height: 200px;
+  }
+
+  .landing__unique-pillar-media {
+    height: 160px;
   }
 
   .dash__controls,
@@ -1672,6 +1841,25 @@
     opacity: 1;
     transform: none;
     transition: none;
+  }
+
+  .landing__unique-signal,
+  .landing__unique-scan {
+    animation: none;
+  }
+
+  .landing__unique-signal {
+    transform: none;
+  }
+
+  .landing__unique-pillar {
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
+
+  .landing__unique-pillar:hover .landing__unique-pillar-media img {
+    transform: none;
   }
 
   .landing__weight-fill {

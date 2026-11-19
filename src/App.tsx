@@ -522,7 +522,7 @@ export default function App() {
             </section>
 
             <MetricStrip
-              title="Routed / Orchestra"
+              title="Routed / Orchestrator"
               m={overview.routed}
               savings={overview.cost_savings_vs_baseline}
             />
