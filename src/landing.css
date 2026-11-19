@@ -383,9 +383,25 @@
   z-index: 1;
   padding: 4.5rem 1.5rem;
   border-top: 1px solid var(--lp-rule);
-  max-width: 1120px;
+  max-width: 1320px;
   margin: 0 auto;
   background: var(--lp-bg);
+  box-sizing: border-box;
+}
+
+@media (min-width: 961px) {
+  .landing__nav {
+    padding-left: 1.5rem;
+    padding-right: 1.5rem;
+  }
+
+  .landing__section,
+  .landing__footer,
+  .landing__section--unique {
+    max-width: 1320px;
+    padding-left: 2rem;
+    padding-right: 2rem;
+  }
 }
 
 #problem {
@@ -393,7 +409,7 @@
 }
 
 .landing__section--unique {
-  max-width: min(1120px, 100%);
+  max-width: min(1320px, 100%);
   padding-top: 4rem;
   padding-bottom: 4.5rem;
 }
@@ -1285,7 +1301,7 @@
   justify-content: space-between;
   gap: 1.5rem;
   padding-bottom: 3.5rem;
-  max-width: 1120px;
+  max-width: 1320px;
   margin: 0 auto;
   border-top: 1px solid var(--lp-rule);
 }

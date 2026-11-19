@@ -60,31 +60,26 @@ button {
 
 @media (min-width: 768px) {
   .app {
-    --page-gutter: 40px;
+    --page-gutter: 32px;
   }
 }
 
 @media (min-width: 1024px) {
   .app {
-    --page-gutter: 56px;
+    --page-gutter: 40px;
   }
 }
 
 @media (min-width: 1280px) {
   .app {
-    --page-gutter: 72px;
+    --page-gutter: 48px;
   }
 }
 
+/* Cap — was escalating to 96–160px on ultrawide */
 @media (min-width: 1600px) {
   .app {
-    --page-gutter: 96px;
-  }
-}
-
-@media (min-width: 1920px) {
-  .app {
-    --page-gutter: clamp(96px, 8vw, 160px);
+    --page-gutter: 56px;
   }
 }
 
